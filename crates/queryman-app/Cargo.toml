@@ -1,0 +1,28 @@
+[package]
+name = "queryman-app"
+description = "Queryman — локальный HTTP-клиент на egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "queryman"
+path = "src/main.rs"
+
+[features]
+# Встроить Inter и JetBrains Mono из assets/fonts (см. assets/fonts/README.md)
+bundled-fonts = []
+
+[dependencies]
+queryman-core.workspace = true
+queryman-http.workspace = true
+queryman-storage.workspace = true
+queryman-io.workspace = true
+eframe.workspace = true
+shadcn_egui.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

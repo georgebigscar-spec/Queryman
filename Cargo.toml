@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Собственные крейты
+queryman-core = { path = "crates/queryman-core" }
+queryman-http = { path = "crates/queryman-http" }
+queryman-storage = { path = "crates/queryman-storage" }
+queryman-io = { path = "crates/queryman-io" }
+
+# UI. Версия egui/eframe задаётся shadcn_egui (сейчас 0.36).
+eframe = "0.36"
+# После первой успешной сборки закрепить: rev = "<хеш коммита>"
+shadcn_egui = { git = "https://github.com/georgebigscar-spec/shadcn_egui", branch = "main" }
+
+# Сеть и рантайм
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls", "http2", "gzip", "brotli", "deflate", "zstd",
+    "cookies", "multipart", "stream", "socks",
+] }
+
+# Данные
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
+base64 = "0.22"
+time = { version = "0.3", features = ["formatting"] }
+directories = "6"
+
+# Ошибки и логи
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Тесты
+wiremock = "0.6"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
