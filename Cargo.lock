@@ -3043,6 +3043,7 @@ version = "0.1.0"
 dependencies = [
  "queryman-core",
  "reqwest",
+ "tempfile",
  "tokio",
  "wiremock",
 ]
@@ -3052,6 +3053,9 @@ name = "queryman-io"
 version = "0.1.0"
 dependencies = [
  "queryman-core",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]

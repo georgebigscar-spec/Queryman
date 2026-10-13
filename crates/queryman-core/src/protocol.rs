@@ -21,7 +21,22 @@ pub enum Command {
         body: Vec<u8>,
         file_name: String,
     },
+    /// Выбрать файл для тела запроса во вкладке `tab`.
+    PickFile {
+        tab: TabId,
+        target: FileTarget,
+    },
+    /// Выбрать файл для импорта и прочитать его как текст.
+    PickImportFile,
     Shutdown,
+}
+
+/// Куда подставить выбранный файл.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileTarget {
+    /// Строка form-data с этим индексом.
+    FormField(usize),
+    Binary,
 }
 
 /// Всё, что нужно рабочему потоку, чтобы выполнить скрипты, подставить переменные и отправить запрос.
@@ -56,6 +71,13 @@ pub enum Event {
         scripts: ScriptReport,
     },
     Saved,
+    FilePicked {
+        tab: TabId,
+        target: FileTarget,
+        path: String,
+    },
+    /// Содержимое файла, выбранного для импорта.
+    ImportFileLoaded(String),
     /// Сообщение для пользователя об успешном действии.
     Notice(String),
     Error {

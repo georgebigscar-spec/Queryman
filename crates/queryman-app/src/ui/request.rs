@@ -3,7 +3,8 @@
 use super::{components, kv};
 use crate::state::AppState;
 use eframe::egui;
-use queryman_core::model::{ApiKeyLocation, Auth, Body, Method, RawKind, RequestSettings};
+use queryman_core::model::{ApiKeyLocation, Auth, Body, FormField, Method, RawKind, Request, RequestSettings};
+use queryman_core::protocol::{Command, FileTarget};
 use queryman_core::script::Scripts;
 use queryman_core::url_sync;
 use queryman_http::DEFAULT_TIMEOUT_MS;
@@ -76,7 +77,19 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
             let url_width = (ui.available_width() - buttons_width).max(200.0);
             let url = components::input(ui, &mut tab.request.url, "https://api.example.com/users", url_width);
             if url.changed() {
-                tab.request.query = url_sync::params_from_url(&tab.request.url, &tab.request.query);
+                let pasted = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))));
+                if pasted && queryman_io::curl::looks_like_curl(&tab.request.url) {
+                    // Вставленная команда cURL превращается в запрос (как в Postman).
+                    match queryman_io::curl::from_curl(&tab.request.url) {
+                        Ok(imported) => {
+                            tab.request = Request { id: tab.request.id, ..imported };
+                            components::notify(ui.ctx(), "Команда cURL разобрана");
+                        }
+                        Err(e) => components::notify_error(ui.ctx(), &format!("cURL: {e}")),
+                    }
+                } else {
+                    tab.request.query = url_sync::params_from_url(&tab.request.url, &tab.request.query);
+                }
                 action.changed = true;
             }
             if url.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -114,6 +127,7 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
 
 pub fn show_editor(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut changed = false;
+    let mut pick = None;
     egui::CentralPanel::default().show(ui, |ui| {
         let tab = state.active_tab_mut();
         let headers_label =
@@ -139,33 +153,46 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     }
                 }
                 1 => changed |= kv::table(ui, "headers", &mut tab.request.headers, "Заголовок", "Значение"),
-                2 => changed |= body_editor(ui, &mut tab.request.body),
+                2 => {
+                    let (body_changed, target) = body_editor(ui, &mut tab.request.body);
+                    changed |= body_changed;
+                    pick = target.map(|target| Command::PickFile { tab: tab.id, target });
+                }
                 3 => changed |= auth_editor(ui, &mut tab.request.auth),
                 4 => changed |= scripts_editor(ui, &mut tab.script_section, &mut tab.request.scripts),
                 _ => changed |= settings_editor(ui, &mut tab.request.settings),
             }
         });
     });
+    state.outbox.extend(pick);
     changed
 }
 
-fn body_editor(ui: &mut egui::Ui, body: &mut Body) -> bool {
+/// Возвращает, изменилось ли тело, и файл, который нужно выбрать в системном диалоге.
+fn body_editor(ui: &mut egui::Ui, body: &mut Body) -> (bool, Option<FileTarget>) {
     let mut changed = false;
+    let mut pick = None;
     let before = match body {
         Body::None => 0,
         Body::Raw { .. } => 1,
         Body::UrlEncoded(_) => 2,
+        Body::FormData(_) => 3,
+        Body::Binary { .. } => 4,
     };
     let mut kind = before;
     ui.horizontal(|ui| {
         ui.radio_value(&mut kind, 0, "none");
         ui.radio_value(&mut kind, 1, "raw");
         ui.radio_value(&mut kind, 2, "x-www-form-urlencoded");
+        ui.radio_value(&mut kind, 3, "form-data");
+        ui.radio_value(&mut kind, 4, "binary");
     });
     if kind != before {
         *body = match kind {
             1 => Body::Raw { text: String::new(), kind: RawKind::Json },
             2 => Body::UrlEncoded(Vec::new()),
+            3 => Body::FormData(Vec::new()),
+            4 => Body::Binary { path: String::new() },
             _ => Body::None,
         };
         changed = true;
@@ -198,8 +225,78 @@ fn body_editor(ui: &mut egui::Ui, body: &mut Body) -> bool {
                 .changed();
         }
         Body::UrlEncoded(fields) => changed |= kv::table(ui, "urlencoded", fields, "Поле", "Значение"),
+        Body::FormData(fields) => {
+            let (form_changed, row) = form_data_table(ui, fields);
+            changed |= form_changed;
+            pick = row.map(FileTarget::FormField);
+        }
+        Body::Binary { path } => {
+            components::muted(ui, "Файл отправляется как есть. Content-Type по умолчанию: application/octet-stream.");
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let width = (ui.available_width() - 130.0).max(200.0);
+                changed |= components::input(ui, path, "Путь к файлу", width).changed();
+                if components::outline(ui, "Выбрать файл…").clicked() {
+                    pick = Some(FileTarget::Binary);
+                }
+            });
+        }
     }
-    changed
+    (changed, pick)
+}
+
+/// Таблица form-data: у каждой строки тип «Текст» или «Файл».
+/// Возвращает, изменилась ли таблица, и строку, для которой нужно выбрать файл.
+fn form_data_table(ui: &mut egui::Ui, fields: &mut Vec<FormField>) -> (bool, Option<usize>) {
+    if fields.last().is_none_or(|f| !f.is_blank()) {
+        fields.push(FormField::default());
+    }
+    let mut changed = false;
+    let mut remove = None;
+    let mut pick = None;
+    let count = fields.len();
+    let column = ((ui.available_width() - 200.0) / 2.0).max(140.0);
+
+    egui::Grid::new("form_data").num_columns(5).spacing([8.0, 6.0]).show(ui, |ui| {
+        for (i, field) in fields.iter_mut().enumerate() {
+            changed |= components::checkbox(ui, &mut field.enabled).changed();
+            changed |= components::input(ui, &mut field.key, "Поле", column).changed();
+            let before = field.file;
+            egui::ComboBox::from_id_salt(("form_kind", i))
+                .selected_text(if field.file { "Файл" } else { "Текст" })
+                .width(72.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut field.file, false, "Текст");
+                    ui.selectable_value(&mut field.file, true, "Файл");
+                });
+            if field.file != before {
+                field.value.clear();
+                changed = true;
+            }
+            if field.file {
+                ui.horizontal(|ui| {
+                    changed |= components::input(ui, &mut field.value, "Путь к файлу", column - 40.0).changed();
+                    if components::ghost(ui, "…").on_hover_text("Выбрать файл").clicked() {
+                        pick = Some(i);
+                    }
+                });
+            } else {
+                changed |= components::input(ui, &mut field.value, "Значение", column).changed();
+            }
+            if i + 1 == count {
+                ui.label("");
+            } else if components::ghost(ui, "×").on_hover_text("Удалить строку").clicked() {
+                remove = Some(i);
+            }
+            ui.end_row();
+        }
+    });
+
+    if let Some(i) = remove {
+        fields.remove(i);
+        changed = true;
+    }
+    (changed, pick)
 }
 
 pub fn auth_editor(ui: &mut egui::Ui, auth: &mut Auth) -> bool {

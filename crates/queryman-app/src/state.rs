@@ -2,8 +2,10 @@
 
 use queryman_core::collection::{Collection, Folder, HistoryEntry, Item};
 use queryman_core::model::{Auth, Environment, Request, ResponseData, Variable, Workspace, WorkspaceSnapshot};
-use queryman_core::protocol::{HttpError, ResponseText, TabId};
+use queryman_core::model::{Body, FormField};
+use queryman_core::protocol::{Command, FileTarget, HttpError, ResponseText, TabId};
 use queryman_core::script::{ScriptReport, VarScope};
+use queryman_io::Imported;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -92,6 +94,10 @@ pub enum Dialog {
         new_collection: String,
     },
     ClearHistory,
+    /// Импорт: вставленный текст cURL или JSON Postman, либо файл.
+    Import {
+        text: String,
+    },
 }
 
 /// Куда можно сохранить запрос: коллекция и, возможно, папка в ней.
@@ -117,6 +123,8 @@ pub struct AppState {
     pub sidebar_section: usize,
     pub tree_selection: Option<Node>,
     pub dialog: Option<Dialog>,
+    /// Команды рабочему потоку, собранные за кадр; отправляет `QuerymanApp`.
+    pub outbox: Vec<Command>,
     next_tab_id: TabId,
 }
 
@@ -135,6 +143,7 @@ impl AppState {
             sidebar_section: 0,
             tree_selection: None,
             dialog: None,
+            outbox: Vec::new(),
             next_tab_id: 1,
         };
         for request in snapshot.workspace.tabs {
@@ -283,6 +292,54 @@ impl AppState {
         };
         items.push(Item::Request(request.clone()));
         self.tabs[index].request = request;
+    }
+
+    /// Добавляет импортированное и возвращает сообщение для пользователя.
+    pub fn apply_import(&mut self, imported: Imported) -> String {
+        match imported {
+            Imported::Request(request) => {
+                let name = request.name.clone();
+                self.open_tab(request);
+                format!("Запрос «{name}» открыт в новой вкладке")
+            }
+            Imported::Collection { collection, environment } => {
+                let message = match &environment {
+                    Some(env) => format!("Коллекция «{}» и окружение «{}» импортированы", collection.name, env.name),
+                    None => format!("Коллекция «{}» импортирована", collection.name),
+                };
+                self.tree_selection = Some(Node::Collection(collection.id));
+                self.sidebar_section = 0;
+                self.collections.push(collection);
+                if let Some(env) = environment {
+                    // Без переменных коллекции её запросы не отправить, поэтому окружение сразу выбирается.
+                    self.active_env.get_or_insert(env.id);
+                    self.environments.push(env);
+                }
+                message
+            }
+            Imported::Environment(env) => {
+                let message = format!("Окружение «{}» импортировано", env.name);
+                self.environments.push(env);
+                message
+            }
+        }
+    }
+
+    /// Подставляет выбранный файл в тело запроса вкладки.
+    pub fn set_body_file(&mut self, tab: TabId, target: FileTarget, path: String) -> bool {
+        let Some(tab) = self.tab_mut(tab) else { return false };
+        match (target, &mut tab.request.body) {
+            (FileTarget::Binary, Body::Binary { path: current }) => *current = path,
+            (FileTarget::FormField(i), Body::FormData(fields)) => {
+                if i >= fields.len() {
+                    fields.resize_with(i + 1, FormField::default);
+                }
+                fields[i].file = true;
+                fields[i].value = path;
+            }
+            _ => return false,
+        }
+        true
     }
 
     pub fn add_collection(&mut self, name: String) -> Uuid {
@@ -486,6 +543,24 @@ mod tests {
         s.rename(Node::Request(id), "b".into());
         assert_eq!(s.active_tab().request.name, "b");
         assert!(!s.is_dirty(s.active_tab()));
+    }
+
+    #[test]
+    fn import_and_picked_files() {
+        let mut s = state();
+        let msg = s.apply_import(queryman_io::import("curl -F a=1 http://x/up").unwrap());
+        assert!(msg.contains("POST /up"));
+        assert_eq!(s.tabs.len(), 2);
+        let tab = s.active_tab().id;
+        assert!(s.set_body_file(tab, FileTarget::FormField(1), "/tmp/f".into()));
+        let Body::FormData(fields) = &s.active_tab().request.body else { panic!() };
+        assert_eq!(fields[1], FormField::file("", "/tmp/f"));
+        assert!(!s.set_body_file(tab, FileTarget::Binary, "/tmp/f".into()));
+
+        let json = r#"{"info": {"name": "c"}, "item": [], "variable": [{"key": "k", "value": "v"}]}"#;
+        s.apply_import(queryman_io::import(json).unwrap());
+        assert_eq!((s.collections.len(), s.environments.len()), (1, 1));
+        assert_eq!(s.active_env, Some(s.environments[0].id));
     }
 
     #[test]

@@ -10,11 +10,14 @@ Rust + egui + [shadcn_egui](https://github.com/georgebigscar-spec/shadcn_egui).
 - окно на eframe с темой shadcn_egui, светлая и тёмная по системной настройке;
 - UI-поток и рабочий поток tokio, связанные каналами `Command` / `Event`;
 - вкладки запросов, метод, URL с синхронизацией таблицы Params;
-- Headers, тело (none / raw / x-www-form-urlencoded), Auth (Inherit, None, API Key, Bearer, Basic);
+- Headers, тело (none / raw / x-www-form-urlencoded / form-data с файлами / binary), Auth (Inherit, None, API Key, Bearer, Basic);
 - настройки запроса: таймаут, перенаправления, проверка TLS;
 - отправка (Ctrl+Enter) и отмена (Esc), ответ: статус, время, размер, Pretty/Raw, заголовки;
 - окружения и глобальные переменные `{{var}}`, динамические `{{$uuid}}`, `{{$timestamp}}`;
 - копирование запроса как cURL;
+- импорт (кнопка «Импорт» в боковой панели): команда cURL (bash или cmd), коллекция Postman v2.0/v2.1
+  с папками, авторизацией, телами и скриптами, окружение Postman. Переменные коллекции становятся окружением.
+  Команду cURL можно вставить прямо в поле URL;
 - коллекции и папки на `shadcn_egui::Tree`: создание, переименование, дублирование, удаление,
   авторизация папки и коллекции для режима Inherit (контекстное меню по правой кнопке);
 - сохранение вкладки в коллекцию (Ctrl+S), несохранённые правки помечены `*` на вкладке;
@@ -26,7 +29,7 @@ Rust + egui + [shadcn_egui](https://github.com/georgebigscar-spec/shadcn_egui).
   Каждый скрипт ограничен 5 секундами и 64 МБ памяти;
 - автосохранение вкладок, окружений, коллекций и истории в JSON (атомарная запись, повреждённые файлы → `*.corrupt`).
 
-Дальше по плану v1.0: импорт cURL и Postman, form-data и binary-тела, остальные виды авторизации.
+Дальше по плану v1.0: остальные виды авторизации (Digest, OAuth 2.0, JWT, AWS SigV4).
 
 ## Сборка
 
@@ -49,7 +52,7 @@ crates/
 ├── queryman-http/      исполнитель на reqwest (rustls), пул клиентов, cookie jar
 ├── queryman-storage/   JSON-файлы, schema_version, атомарная запись
 ├── queryman-script/    скрипты pre-request/tests на QuickJS, API pm.* (prelude.js)
-├── queryman-io/        экспорт cURL (импорт cURL и Postman — этап v1.0)
+├── queryman-io/        экспорт cURL, импорт cURL и Postman
 └── queryman-app/       eframe, UI, рабочий поток
     └── src/ui/components.rs — единственное место вызовов shadcn_egui
 ```

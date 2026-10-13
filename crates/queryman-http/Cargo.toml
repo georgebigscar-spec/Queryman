@@ -9,7 +9,9 @@ rust-version.workspace = true
 [dependencies]
 queryman-core.workspace = true
 reqwest.workspace = true
+tokio = { workspace = true, features = ["fs"] }
 
 [dev-dependencies]
 tokio.workspace = true
 wiremock.workspace = true
+tempfile.workspace = true
