@@ -108,7 +108,39 @@ impl RawKind {
     }
 }
 
-/// Тело запроса. form-data и binary появятся на этапе v1.0 (FR-05).
+/// Поле multipart/form-data: текст или файл с диска (FR-05).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FormField {
+    pub key: String,
+    /// Текст поля или путь к файлу, если `file == true`.
+    pub value: String,
+    pub file: bool,
+    pub enabled: bool,
+    pub description: String,
+}
+
+impl Default for FormField {
+    fn default() -> Self {
+        Self { key: String::new(), value: String::new(), file: false, enabled: true, description: String::new() }
+    }
+}
+
+impl FormField {
+    pub fn text(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self { key: key.into(), value: value.into(), ..Self::default() }
+    }
+
+    pub fn file(key: impl Into<String>, path: impl Into<String>) -> Self {
+        Self { key: key.into(), value: path.into(), file: true, ..Self::default() }
+    }
+
+    pub fn is_blank(&self) -> bool {
+        self.key.trim().is_empty() && self.value.is_empty() && self.description.is_empty()
+    }
+}
+
+/// Тело запроса (FR-05).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Body {
@@ -119,6 +151,11 @@ pub enum Body {
         kind: RawKind,
     },
     UrlEncoded(Vec<KeyValue>),
+    FormData(Vec<FormField>),
+    /// Файл с диска отправляется как есть.
+    Binary {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -209,8 +246,10 @@ impl Request {
         let mut r = self.clone();
         r.query.retain(|kv| !kv.is_blank());
         r.headers.retain(|kv| !kv.is_blank());
-        if let Body::UrlEncoded(fields) = &mut r.body {
-            fields.retain(|kv| !kv.is_blank());
+        match &mut r.body {
+            Body::UrlEncoded(fields) => fields.retain(|kv| !kv.is_blank()),
+            Body::FormData(fields) => fields.retain(|f| !f.is_blank()),
+            _ => {}
         }
         r
     }

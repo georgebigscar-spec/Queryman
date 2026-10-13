@@ -118,6 +118,24 @@ impl QuerymanApp {
         false
     }
 
+    /// Импортирует текст cURL или JSON Postman; при успехе закрывает диалог импорта.
+    pub(crate) fn import_text(&mut self, ctx: &egui::Context, text: &str) -> bool {
+        match queryman_io::import(text) {
+            Ok(imported) => {
+                let message = self.state.apply_import(imported);
+                if matches!(self.state.dialog, Some(Dialog::Import { .. })) {
+                    self.state.dialog = None;
+                }
+                components::notify(ctx, &message);
+                true
+            }
+            Err(e) => {
+                components::notify_error(ctx, &format!("Импорт: {e}"));
+                false
+            }
+        }
+    }
+
     /// Вызывается до показа UI, поэтому должен вернуть, изменилось ли состояние для автосохранения.
     fn drain_events(&mut self, ctx: &egui::Context) -> bool {
         let mut changed = false;
@@ -156,6 +174,8 @@ impl QuerymanApp {
                     }
                 }
                 Event::Saved => {}
+                Event::FilePicked { tab, target, path } => changed |= self.state.set_body_file(tab, target, path),
+                Event::ImportFileLoaded(text) => changed |= self.import_text(ctx, &text),
                 Event::Notice(message) => components::notify(ctx, &message),
                 Event::Error { context, message } => {
                     tracing::error!("{context}: {message}");
@@ -246,7 +266,14 @@ impl eframe::App for QuerymanApp {
         }
         changed |= ui::request::show_editor(root, &mut self.state);
         changed |= ui::environments::show(ctx, &mut self.state);
-        changed |= ui::dialogs::show(ctx, &mut self.state);
+        let dialog = ui::dialogs::show(ctx, &mut self.state);
+        changed |= dialog.changed;
+        if let Some(text) = dialog.import {
+            changed |= self.import_text(ctx, &text);
+        }
+        for command in self.state.outbox.drain(..) {
+            self.worker.send(command);
+        }
         components::show_toasts(ctx);
 
         if bar.send {

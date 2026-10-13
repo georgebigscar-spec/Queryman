@@ -163,6 +163,43 @@ async fn run(
                     emit(&events, &ctx, event);
                 });
             }
+            Command::PickFile { tab, target } => {
+                let events = events.clone();
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    if let Some(file) = rfd::AsyncFileDialog::new().pick_file().await {
+                        let path = file.path().display().to_string();
+                        emit(&events, &ctx, Event::FilePicked { tab, target, path });
+                    }
+                });
+            }
+            Command::PickImportFile => {
+                let events = events.clone();
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    let Some(file) = rfd::AsyncFileDialog::new()
+                        .add_filter("Postman, cURL", &["json", "txt", "sh"])
+                        .add_filter("Все файлы", &["*"])
+                        .pick_file()
+                        .await
+                    else {
+                        return;
+                    };
+                    let path = file.path().to_owned();
+                    let outcome = tokio::task::spawn_blocking(move || std::fs::read(&path)).await;
+                    let event = match outcome {
+                        Ok(Ok(bytes)) => match String::from_utf8(bytes) {
+                            Ok(text) => Event::ImportFileLoaded(text),
+                            Err(_) => Event::Error {
+                                context: "Импорт".into(), message: "файл не в UTF-8".into()
+                            },
+                        },
+                        Ok(Err(e)) => Event::Error { context: "Импорт".into(), message: e.to_string() },
+                        Err(e) => Event::Error { context: "Импорт".into(), message: e.to_string() },
+                    };
+                    emit(&events, &ctx, event);
+                });
+            }
             Command::Shutdown => break,
         }
     }

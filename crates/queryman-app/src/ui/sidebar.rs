@@ -12,6 +12,7 @@ enum Action {
     Open(Uuid),
     OpenHistory(usize),
     NewCollection,
+    Import,
     NewFolder(Node),
     NewRequest(Node),
     Rename(Node),
@@ -50,14 +51,25 @@ fn collections(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action
             if components::ghost(ui, "+").on_hover_text("Новая коллекция").clicked() {
                 actions.push(Action::NewCollection);
             }
+            if components::ghost(ui, "Импорт").on_hover_text("Импорт cURL или Postman").clicked() {
+                actions.push(Action::Import);
+            }
         });
     });
     if state.collections.is_empty() {
-        components::muted(ui, "Коллекций пока нет. Создайте коллекцию или сохраните запрос (Ctrl+S).");
+        components::muted(
+            ui,
+            "Коллекций пока нет. Создайте коллекцию, импортируйте её из Postman или сохраните запрос (Ctrl+S).",
+        );
         ui.add_space(6.0);
-        if components::outline(ui, "Создать коллекцию").clicked() {
-            actions.push(Action::NewCollection);
-        }
+        ui.horizontal(|ui| {
+            if components::outline(ui, "Создать коллекцию").clicked() {
+                actions.push(Action::NewCollection);
+            }
+            if components::outline(ui, "Импорт").clicked() {
+                actions.push(Action::Import);
+            }
+        });
         return;
     }
 
@@ -256,6 +268,10 @@ fn apply(state: &mut AppState, action: Action) -> bool {
         }
         Action::NewCollection => {
             state.dialog = Some(Dialog::Create { parent: None, name: "Новая коллекция".to_owned() });
+            false
+        }
+        Action::Import => {
+            state.dialog = Some(Dialog::Import { text: String::new() });
             false
         }
         Action::NewFolder(parent) => {

@@ -4,6 +4,7 @@
 use crate::model::{ApiKeyLocation, Auth, Body, Request, RequestSettings};
 use crate::vars::Resolver;
 use base64::Engine as _;
+use std::path::PathBuf;
 use url::form_urlencoded;
 
 /// Запрос с подставленными значениями — то, что реально уходит в сеть.
@@ -12,8 +13,29 @@ pub struct ResolvedRequest {
     pub method: String,
     pub url: String,
     pub headers: Vec<(String, String)>,
-    pub body: Option<Vec<u8>>,
+    pub body: Option<ResolvedBody>,
     pub settings: RequestSettings,
+}
+
+/// Тело после подстановки. Файлы читает исполнитель в момент отправки.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedBody {
+    Bytes(Vec<u8>),
+    File(PathBuf),
+    /// multipart/form-data; заголовок Content-Type с границей ставит исполнитель.
+    Multipart(Vec<Part>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Part {
+    pub name: String,
+    pub value: PartValue,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PartValue {
+    Text(String),
+    File(PathBuf),
 }
 
 impl ResolvedRequest {
@@ -38,7 +60,7 @@ pub fn prepare(req: &Request, resolver: &Resolver<'_>, parent_auth: Option<&Auth
         Body::Raw { text, .. } if text.is_empty() => None,
         Body::Raw { text, kind } => {
             set_default_header(&mut headers, "Content-Type", kind.content_type());
-            Some(resolver.resolve(text).into_bytes())
+            Some(ResolvedBody::Bytes(resolver.resolve(text).into_bytes()))
         }
         Body::UrlEncoded(fields) => {
             let mut ser = form_urlencoded::Serializer::new(String::new());
@@ -46,7 +68,26 @@ pub fn prepare(req: &Request, resolver: &Resolver<'_>, parent_auth: Option<&Auth
                 ser.append_pair(&resolver.resolve(&f.key), &resolver.resolve(&f.value));
             }
             set_default_header(&mut headers, "Content-Type", "application/x-www-form-urlencoded");
-            Some(ser.finish().into_bytes())
+            Some(ResolvedBody::Bytes(ser.finish().into_bytes()))
+        }
+        Body::FormData(fields) => Some(ResolvedBody::Multipart(
+            fields
+                .iter()
+                .filter(|f| f.enabled && !f.key.is_empty())
+                .map(|f| Part {
+                    name: resolver.resolve(&f.key),
+                    value: if f.file {
+                        PartValue::File(PathBuf::from(resolver.resolve(f.value.trim())))
+                    } else {
+                        PartValue::Text(resolver.resolve(&f.value))
+                    },
+                })
+                .collect(),
+        )),
+        Body::Binary { path } if path.trim().is_empty() => None,
+        Body::Binary { path } => {
+            set_default_header(&mut headers, "Content-Type", "application/octet-stream");
+            Some(ResolvedBody::File(PathBuf::from(resolver.resolve(path.trim()))))
         }
     };
 
@@ -119,7 +160,7 @@ fn with_default_scheme(url: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{KeyValue, RawKind, Variable};
+    use crate::model::{FormField, KeyValue, RawKind, Variable};
 
     fn request(url: &str) -> Request {
         Request { url: url.into(), ..Request::default() }
@@ -146,7 +187,7 @@ mod tests {
         req.body = Body::Raw { text: r#"{"id": {{id}}}"#.into(), kind: RawKind::Json };
         let out = prepare(&req, &Resolver::new().with_layer(&vars), None);
         assert_eq!(out.header("content-type"), Some("application/json"));
-        assert_eq!(out.body.as_deref(), Some(br#"{"id": 7}"#.as_slice()));
+        assert_eq!(out.body, Some(ResolvedBody::Bytes(br#"{"id": 7}"#.to_vec())));
     }
 
     #[test]
@@ -154,7 +195,31 @@ mod tests {
         let mut req = request("http://x");
         req.body = Body::UrlEncoded(vec![KeyValue::new("a", "1 2"), KeyValue::new("b", "&")]);
         let out = prepare(&req, &Resolver::new(), None);
-        assert_eq!(out.body.as_deref(), Some(b"a=1+2&b=%26".as_slice()));
+        assert_eq!(out.body, Some(ResolvedBody::Bytes(b"a=1+2&b=%26".to_vec())));
+    }
+
+    #[test]
+    fn form_data_and_binary() {
+        let vars = [Variable::new("dir", "/tmp")];
+        let r = Resolver::new().with_layer(&vars);
+        let mut req = request("http://x");
+        let mut off = FormField::text("off", "1");
+        off.enabled = false;
+        req.body = Body::FormData(vec![FormField::text("a", "{{dir}}"), FormField::file("f", "{{dir}}/x.png"), off]);
+        let out = prepare(&req, &r, None);
+        assert_eq!(out.header("content-type"), None);
+        assert_eq!(
+            out.body,
+            Some(ResolvedBody::Multipart(vec![
+                Part { name: "a".into(), value: PartValue::Text("/tmp".into()) },
+                Part { name: "f".into(), value: PartValue::File("/tmp/x.png".into()) },
+            ]))
+        );
+
+        req.body = Body::Binary { path: "{{dir}}/data.bin".into() };
+        let out = prepare(&req, &r, None);
+        assert_eq!(out.header("content-type"), Some("application/octet-stream"));
+        assert_eq!(out.body, Some(ResolvedBody::File("/tmp/data.bin".into())));
     }
 
     #[test]

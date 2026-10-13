@@ -1,7 +1,7 @@
 //! Выполнение запросов. Вызывается только из рабочего потока (раздел 3).
 
 use queryman_core::model::{RequestSettings, ResponseData};
-use queryman_core::prepare::ResolvedRequest;
+use queryman_core::prepare::{PartValue, ResolvedBody, ResolvedRequest};
 use queryman_core::protocol::HttpError;
 use reqwest::redirect::Policy;
 use std::collections::HashMap;
@@ -74,8 +74,26 @@ pub async fn execute(client: &reqwest::Client, req: ResolvedRequest) -> Result<R
     for (name, value) in &req.headers {
         builder = builder.header(name.as_str(), value.as_str());
     }
-    if let Some(body) = req.body {
-        builder = builder.body(body);
+    match req.body {
+        None => {}
+        Some(ResolvedBody::Bytes(bytes)) => builder = builder.body(bytes),
+        Some(ResolvedBody::File(path)) => {
+            let bytes = tokio::fs::read(&path).await.map_err(|e| file_error(&path, &e))?;
+            builder = builder.body(bytes);
+        }
+        Some(ResolvedBody::Multipart(parts)) => {
+            let mut form = reqwest::multipart::Form::new();
+            for part in parts {
+                form = match part.value {
+                    PartValue::Text(text) => form.text(part.name, text),
+                    PartValue::File(path) => {
+                        let file = reqwest::multipart::Part::file(&path).await.map_err(|e| file_error(&path, &e))?;
+                        form.part(part.name, file)
+                    }
+                };
+            }
+            builder = builder.multipart(form);
+        }
     }
 
     let started = Instant::now();
@@ -104,6 +122,10 @@ pub async fn execute(client: &reqwest::Client, req: ResolvedRequest) -> Result<R
         ttfb_ms: ttfb.as_millis() as u64,
         final_url,
     })
+}
+
+fn file_error(path: &std::path::Path, e: &std::io::Error) -> HttpError {
+    HttpError::InvalidRequest(format!("не удалось прочитать файл {}: {e}", path.display()))
 }
 
 fn map_error(e: &reqwest::Error, timeout_ms: u64) -> HttpError {
@@ -138,7 +160,7 @@ fn error_chain(e: &reqwest::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{body_string, header, method, path};
+    use wiremock::matchers::{body_string, header, header_regex, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn request(method: &str, url: String) -> ResolvedRequest {
@@ -185,9 +207,50 @@ mod tests {
 
         let mut req = request("POST", format!("{}/echo", server.uri()));
         req.headers.push(("Content-Type".into(), "application/json".into()));
-        req.body = Some(br#"{"a":1}"#.to_vec());
+        req.body = Some(ResolvedBody::Bytes(br#"{"a":1}"#.to_vec()));
         let client = ClientPool::new().get(&req.settings).unwrap();
         assert_eq!(execute(&client, req).await.unwrap().status, 201);
+    }
+
+    #[tokio::test]
+    async fn multipart_and_binary_read_files() {
+        use queryman_core::prepare::Part;
+        use wiremock::matchers::body_string_contains;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("note.txt");
+        std::fs::write(&file, "file contents").unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(path("/form"))
+            .and(header_regex("content-type", "^multipart/form-data; boundary="))
+            .and(body_string_contains("name=\"a\""))
+            .and(body_string_contains("filename=\"note.txt\""))
+            .and(body_string_contains("file contents"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        Mock::given(path("/bin"))
+            .and(body_string("file contents"))
+            .respond_with(ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
+
+        let client = ClientPool::new().get(&RequestSettings::default()).unwrap();
+        let mut req = request("POST", format!("{}/form", server.uri()));
+        req.body = Some(ResolvedBody::Multipart(vec![
+            Part { name: "a".into(), value: PartValue::Text("1".into()) },
+            Part { name: "f".into(), value: PartValue::File(file.clone()) },
+        ]));
+        assert_eq!(execute(&client, req).await.unwrap().status, 200);
+
+        let mut req = request("POST", format!("{}/bin", server.uri()));
+        req.body = Some(ResolvedBody::File(file));
+        assert_eq!(execute(&client, req.clone()).await.unwrap().status, 201);
+
+        req.body = Some(ResolvedBody::File(dir.path().join("missing")));
+        let err = execute(&client, req).await.unwrap_err();
+        assert!(matches!(err, HttpError::InvalidRequest(ref m) if m.contains("missing")), "{err:?}");
     }
 
     #[tokio::test]

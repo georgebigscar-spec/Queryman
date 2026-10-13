@@ -1,15 +1,24 @@
 //! Модальные диалоги коллекций и истории: переименование, удаление,
-//! авторизация папки, сохранение запроса, очистка истории.
+//! авторизация папки, сохранение запроса, очистка истории, импорт.
 
 use super::{components, request};
 use crate::state::{AppState, Dialog, Node};
 use eframe::egui;
 use queryman_core::collection::{Folder, Item};
+use queryman_core::protocol::Command;
 
-/// Возвращает `true`, если данные изменились и их нужно сохранить.
-pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
-    let Some(mut dialog) = state.dialog.take() else { return false };
+#[derive(Default)]
+pub struct DialogOutcome {
+    /// Данные изменились и их нужно сохранить.
+    pub changed: bool,
+    /// Текст, который пользователь попросил импортировать.
+    pub import: Option<String>,
+}
+
+pub fn show(ctx: &egui::Context, state: &mut AppState) -> DialogOutcome {
+    let Some(mut dialog) = state.dialog.take() else { return DialogOutcome::default() };
     let mut changed = false;
+    let mut import = None;
 
     let outcome = match &mut dialog {
         Dialog::Create { parent, name } => {
@@ -80,6 +89,31 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
             );
             answer.or(close.then_some(false))
         }
+        Dialog::Import { text } => {
+            let (answer, close) = components::dialog(
+                ctx,
+                "import",
+                "Импорт",
+                Some("Вставьте команду cURL, коллекцию или окружение Postman (JSON) либо выберите файл."),
+                |ui| {
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(text)
+                                .code_editor()
+                                .hint_text("curl https://api.example.com/users -H 'Accept: application/json'")
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(12),
+                        );
+                    });
+                    ui.add_space(6.0);
+                    if components::outline(ui, "Выбрать файл…").clicked() {
+                        state.outbox.push(Command::PickImportFile);
+                    }
+                    components::dialog_footer(ui, "Импортировать", false)
+                },
+            );
+            answer.or(close.then_some(false))
+        }
     };
 
     match outcome {
@@ -120,10 +154,16 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
                     components::notify(ctx, "Запрос сохранён");
                 }
                 Dialog::ClearHistory => state.history.clear(),
+                Dialog::Import { text } => {
+                    // Диалог закроет приложение после успешного импорта, при ошибке он остаётся открытым.
+                    changed = false;
+                    import = Some(text.clone());
+                    state.dialog = Some(Dialog::Import { text });
+                }
             }
         }
     }
-    changed
+    DialogOutcome { changed, import }
 }
 
 /// Диалог с одним полем названия: Enter подтверждает, Esc и «Отмена» закрывают.
