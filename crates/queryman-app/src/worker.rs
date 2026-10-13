@@ -47,7 +47,13 @@ pub fn spawn(ctx: egui::Context, store: Option<Store>) -> WorkerHandle {
             {
                 Ok(rt) => rt,
                 Err(e) => {
-                    emit(&evt_tx, &ctx, Event::Error { context: "Запуск рабочего потока".into(), message: e.to_string() });
+                    emit(
+                        &evt_tx,
+                        &ctx,
+                        Event::Error {
+                            context: "Запуск рабочего потока".into(), message: e.to_string()
+                        },
+                    );
                     return;
                 }
             };
@@ -82,7 +88,11 @@ async fn run(
                 let client = match pool.get(&request.settings) {
                     Ok(client) => client,
                     Err(e) => {
-                        emit(&events, &ctx, Event::ResponseReady { tab, result: Err(e), text: ResponseText::default() });
+                        emit(
+                            &events,
+                            &ctx,
+                            Event::ResponseReady { tab, result: Err(e), text: ResponseText::default() },
+                        );
                         continue;
                     }
                 };
@@ -98,11 +108,11 @@ async fn run(
             Command::Cancel { tab } => {
                 if let Some(handle) = in_flight.remove(&tab) {
                     handle.abort();
-                    emit(&events, &ctx, Event::ResponseReady {
-                        tab,
-                        result: Err(HttpError::Cancelled),
-                        text: ResponseText::default(),
-                    });
+                    emit(
+                        &events,
+                        &ctx,
+                        Event::ResponseReady { tab, result: Err(HttpError::Cancelled), text: ResponseText::default() },
+                    );
                 }
             }
             Command::Save(snapshot) => {
@@ -138,8 +148,7 @@ fn render_text(data: &ResponseData) -> ResponseText {
 }
 
 fn looks_like_json(data: &ResponseData) -> bool {
-    data.is_json()
-        || matches!(data.body.iter().find(|b| !b.is_ascii_whitespace()), Some(b'{') | Some(b'['))
+    data.is_json() || matches!(data.body.iter().find(|b| !b.is_ascii_whitespace()), Some(b'{') | Some(b'['))
 }
 
 fn truncate_utf8(mut text: String, max: usize) -> String {

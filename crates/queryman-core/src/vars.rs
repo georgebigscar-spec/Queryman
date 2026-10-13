@@ -29,9 +29,7 @@ impl<'a> Resolver<'a> {
         if let Some(dynamic_name) = name.strip_prefix('$') {
             return dynamic(dynamic_name);
         }
-        self.layers.iter().find_map(|layer| {
-            layer.iter().find(|v| v.enabled && v.key == name).map(|v| v.value.clone())
-        })
+        self.layers.iter().find_map(|layer| layer.iter().find(|v| v.enabled && v.key == name).map(|v| v.value.clone()))
     }
 
     /// Заменяет все известные `{{имя}}`. Неизвестные остаются как есть.

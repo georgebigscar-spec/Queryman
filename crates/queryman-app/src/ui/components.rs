@@ -30,11 +30,11 @@ pub fn primary(ui: &mut egui::Ui, text: &str) -> egui::Response {
 }
 
 pub fn outline(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(sc::Button::new(text).outline())
+    ui.add(sc::Button::outline(text))
 }
 
 pub fn ghost(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(sc::Button::new(text).ghost())
+    ui.add(sc::Button::ghost(text))
 }
 
 pub fn input(ui: &mut egui::Ui, value: &mut String, placeholder: &str, width: f32) -> egui::Response {

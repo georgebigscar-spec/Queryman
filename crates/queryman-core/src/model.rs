@@ -22,15 +22,8 @@ pub enum Method {
 }
 
 impl Method {
-    pub const STANDARD: [Method; 7] = [
-        Method::Get,
-        Method::Post,
-        Method::Put,
-        Method::Patch,
-        Method::Delete,
-        Method::Head,
-        Method::Options,
-    ];
+    pub const STANDARD: [Method; 7] =
+        [Method::Get, Method::Post, Method::Put, Method::Patch, Method::Delete, Method::Head, Method::Options];
 
     pub fn as_str(&self) -> &str {
         match self {
@@ -92,8 +85,7 @@ pub enum RawKind {
 }
 
 impl RawKind {
-    pub const ALL: [RawKind; 5] =
-        [RawKind::Json, RawKind::Xml, RawKind::Text, RawKind::Html, RawKind::JavaScript];
+    pub const ALL: [RawKind; 5] = [RawKind::Json, RawKind::Xml, RawKind::Text, RawKind::Html, RawKind::JavaScript];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -122,7 +114,10 @@ impl RawKind {
 pub enum Body {
     #[default]
     None,
-    Raw { text: String, kind: RawKind },
+    Raw {
+        text: String,
+        kind: RawKind,
+    },
     UrlEncoded(Vec<KeyValue>),
 }
 
@@ -142,10 +137,20 @@ pub enum Auth {
     #[default]
     Inherit,
     None,
-    ApiKey { key: String, value: String, location: ApiKeyLocation },
+    ApiKey {
+        key: String,
+        value: String,
+        location: ApiKeyLocation,
+    },
     /// Пустой `prefix` означает "Bearer".
-    Bearer { token: String, prefix: String },
-    Basic { username: String, password: String },
+    Bearer {
+        token: String,
+        prefix: String,
+    },
+    Basic {
+        username: String,
+        password: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -309,10 +314,12 @@ mod tests {
 
     #[test]
     fn request_roundtrips_through_json() {
-        let mut r = Request::default();
-        r.url = "{{baseUrl}}/users".into();
-        r.body = Body::UrlEncoded(vec![KeyValue::new("a", "1")]);
-        r.auth = Auth::Bearer { token: "{{token}}".into(), prefix: String::new() };
+        let r = Request {
+            url: "{{baseUrl}}/users".into(),
+            body: Body::UrlEncoded(vec![KeyValue::new("a", "1")]),
+            auth: Auth::Bearer { token: "{{token}}".into(), prefix: String::new() },
+            ..Default::default()
+        };
         let json = serde_json::to_string(&r).unwrap();
         let back: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(r, back);
@@ -320,8 +327,7 @@ mod tests {
 
     #[test]
     fn blank_rows_are_dropped() {
-        let mut r = Request::default();
-        r.headers = vec![KeyValue::new("Accept", "*/*"), KeyValue::default()];
+        let r = Request { headers: vec![KeyValue::new("Accept", "*/*"), KeyValue::default()], ..Default::default() };
         assert_eq!(r.without_blank_rows().headers.len(), 1);
     }
 }

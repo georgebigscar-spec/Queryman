@@ -23,9 +23,5 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    eframe::run_native(
-        queryman_core::APP_NAME,
-        options,
-        Box::new(|cc| Ok(Box::new(app::QuerymanApp::new(cc)))),
-    )
+    eframe::run_native(queryman_core::APP_NAME, options, Box::new(|cc| Ok(Box::new(app::QuerymanApp::new(cc)))))
 }

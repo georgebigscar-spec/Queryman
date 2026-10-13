@@ -53,11 +53,7 @@ crates/
 
 Логи: `RUST_LOG=debug cargo run -p queryman-app`.
 
-## Первая сборка: на что обратить внимание
+## Проверка
 
-Код написан без компиляции. Вероятные места правок:
-
-1. `src/ui/components.rs` — сигнатуры shadcn_egui (`toast`, `tabs`, `toggle_group`, `Input`).
-   Все вызовы собраны в этом файле.
-2. API egui/eframe 0.36: `selectable_label`, `ComboBox::from_id_salt`, `DragValue::range`.
-3. После успешной сборки закрепите коммит shadcn_egui (`rev = "…"` в корневом `Cargo.toml`).
+CI (`.github/workflows/ci.yml`) запускает `cargo fmt --check`, `cargo clippy -D warnings` и `cargo test`.
+shadcn_egui закреплён на конкретном коммите (`rev` в корневом `Cargo.toml`).

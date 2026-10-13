@@ -46,11 +46,8 @@ impl ClientPool {
         if let Some(client) = self.clients.get(&key) {
             return Ok(client.clone());
         }
-        let redirect = if key.follow_redirects {
-            Policy::limited(usize::from(key.max_redirects))
-        } else {
-            Policy::none()
-        };
+        let redirect =
+            if key.follow_redirects { Policy::limited(usize::from(key.max_redirects)) } else { Policy::none() };
         let client = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .cookie_provider(self.jar.clone())
@@ -160,9 +157,8 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/users"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .insert_header("content-type", "application/json")
-                    .set_body_string("[1,2]"),
+                // set_body_string подставил бы text/plain, поэтому тип задаётся вместе с телом.
+                ResponseTemplate::new(200).set_body_raw("[1,2]", "application/json"),
             )
             .mount(&server)
             .await;

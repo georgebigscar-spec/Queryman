@@ -65,7 +65,8 @@ mod tests {
     #[test]
     fn settings_become_flags() {
         let mut r = req("GET");
-        r.settings = RequestSettings { timeout_ms: Some(1500), follow_redirects: true, max_redirects: 5, verify_tls: false };
+        r.settings =
+            RequestSettings { timeout_ms: Some(1500), follow_redirects: true, max_redirects: 5, verify_tls: false };
         let cmd = to_curl(&r);
         assert!(cmd.contains("-L --max-redirs 5"));
         assert!(cmd.contains("--insecure"));
