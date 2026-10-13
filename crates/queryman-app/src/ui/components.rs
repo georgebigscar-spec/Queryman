@@ -114,3 +114,45 @@ pub fn human_size(bytes: u64) -> String {
         format!("{value:.1} {}", UNITS[unit])
     }
 }
+
+pub use sc::TreeUi;
+
+/// Дерево с одиночным выбором (`shadcn_egui::Tree`).
+pub fn tree<T: PartialEq + Clone>(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    selected: &mut Option<T>,
+    add_nodes: impl FnOnce(&mut TreeUi<'_, T>),
+) {
+    sc::Tree::new(id_salt).default_open_depth(1).show(ui, selected, add_nodes);
+}
+
+/// Модальный диалог. Возвращает результат `add_contents` и признак закрытия (Esc, фон, ✕).
+pub fn dialog<R>(
+    ctx: &egui::Context,
+    id_salt: &str,
+    title: &str,
+    description: Option<&str>,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> (R, bool) {
+    let mut dialog = sc::Dialog::new(id_salt, title).width(460.0);
+    if let Some(text) = description {
+        dialog = dialog.description(text);
+    }
+    let response = dialog.show(ctx, add_contents);
+    (response.inner, response.should_close)
+}
+
+/// Кнопки диалога, выровненные вправо. Возвращает `Some(true)` для действия, `Some(false)` для отмены.
+pub fn dialog_footer(ui: &mut egui::Ui, action: &str, destructive: bool) -> Option<bool> {
+    sc::footer(ui, |ui| {
+        let button = if destructive { sc::Button::destructive(action) } else { sc::Button::new(action) };
+        if ui.add(button).clicked() {
+            return Some(true);
+        }
+        if ui.add(sc::Button::outline("Отмена")).clicked() {
+            return Some(false);
+        }
+        None
+    })
+}

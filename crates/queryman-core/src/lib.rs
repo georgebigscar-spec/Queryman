@@ -1,6 +1,7 @@
 //! Ядро Queryman: модель данных, подстановка переменных и подготовка запроса.
 //! Крейт не зависит от egui и не выполняет ввода-вывода.
 
+pub mod collection;
 pub mod model;
 pub mod prepare;
 pub mod protocol;

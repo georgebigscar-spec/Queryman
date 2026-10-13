@@ -12,6 +12,7 @@ pub struct BarAction {
     pub send: bool,
     pub cancel: bool,
     pub copy_curl: bool,
+    pub save: bool,
     pub changed: bool,
 }
 
@@ -26,7 +27,8 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
         let mut new_tab = false;
         ui.horizontal_wrapped(|ui| {
             for (i, tab) in state.tabs.iter().enumerate() {
-                let label = format!("{}  {}", tab.request.method, tab.request.name);
+                let marker = if state.is_dirty(tab) { " *" } else { "" };
+                let label = format!("{}  {}{marker}", tab.request.method, tab.request.name);
                 let response = ui.selectable_label(i == state.active, label);
                 if response.clicked() {
                     select = Some(i);
@@ -58,6 +60,7 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
         ui.separator();
 
         // Строка запроса.
+        let linked = state.saved_request(state.active_tab().request.id).is_some();
         let tab = state.active_tab_mut();
         ui.horizontal(|ui| {
             let before = tab.request.method.clone();
@@ -71,7 +74,7 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
                 });
             action.changed |= tab.request.method != before;
 
-            let buttons_width = 230.0;
+            let buttons_width = 330.0;
             let url_width = (ui.available_width() - buttons_width).max(200.0);
             let url = components::input(ui, &mut tab.request.url, "https://api.example.com/users", url_width);
             if url.changed() {
@@ -88,6 +91,14 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
                 }
             } else if components::primary(ui, "Send").on_hover_text("Ctrl+Enter").clicked() {
                 action.send = true;
+            }
+            let save_hint = if linked {
+                "Сохранить в коллекцию (Ctrl+S)"
+            } else {
+                "Сохранить в коллекцию… (Ctrl+S)"
+            };
+            if components::outline(ui, "Сохранить").on_hover_text(save_hint).clicked() {
+                action.save = true;
             }
             if components::ghost(ui, "cURL").on_hover_text("Скопировать как cURL").clicked() {
                 action.copy_curl = true;
@@ -183,7 +194,7 @@ fn body_editor(ui: &mut egui::Ui, body: &mut Body) -> bool {
     changed
 }
 
-fn auth_editor(ui: &mut egui::Ui, auth: &mut Auth) -> bool {
+pub fn auth_editor(ui: &mut egui::Ui, auth: &mut Auth) -> bool {
     const LABELS: [&str; 5] = ["Наследовать", "Без авторизации", "API Key", "Bearer Token", "Basic Auth"];
     let mut changed = false;
     let before = match auth {
