@@ -58,6 +58,12 @@ impl Node {
 
 /// Открытый модальный диалог; одновременно не больше одного.
 pub enum Dialog {
+    /// Новая коллекция (`parent == None`) или папка внутри `parent`.
+    /// Создаётся только после подтверждения.
+    Create {
+        parent: Option<Node>,
+        name: String,
+    },
     Rename {
         node: Node,
         name: String,
@@ -272,8 +278,8 @@ impl AppState {
         self.tabs[index].request = request;
     }
 
-    pub fn add_collection(&mut self) -> Uuid {
-        let c = Collection::default();
+    pub fn add_collection(&mut self, name: String) -> Uuid {
+        let c = Collection { name, ..Default::default() };
         let id = c.id;
         self.collections.push(c);
         id
@@ -443,7 +449,7 @@ mod tests {
     #[test]
     fn open_saved_reuses_tab_and_rename_updates_it() {
         let mut s = state();
-        let c = s.add_collection();
+        let c = s.add_collection("api".into());
         let request = Request { name: "a".into(), ..Default::default() };
         let id = request.id;
         s.add_child(Node::Collection(c), Item::Request(request));
@@ -462,7 +468,7 @@ mod tests {
     #[test]
     fn duplicate_and_delete_folder() {
         let mut s = state();
-        let c = s.add_collection();
+        let c = s.add_collection("api".into());
         let folder = Folder::default();
         let folder_id = folder.id;
         s.add_child(Node::Collection(c), Item::Folder(folder));

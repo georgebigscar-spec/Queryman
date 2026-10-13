@@ -255,17 +255,12 @@ fn apply(state: &mut AppState, action: Action) -> bool {
             true
         }
         Action::NewCollection => {
-            let id = state.add_collection();
-            let node = Node::Collection(id);
-            state.dialog = Some(Dialog::Rename { node, name: state.node_name(node).unwrap_or_default() });
-            true
+            state.dialog = Some(Dialog::Create { parent: None, name: "Новая коллекция".to_owned() });
+            false
         }
         Action::NewFolder(parent) => {
-            let folder = Folder::default();
-            let node = Node::Folder(folder.id);
-            state.add_child(parent, Item::Folder(folder));
-            state.dialog = Some(Dialog::Rename { node, name: state.node_name(node).unwrap_or_default() });
-            true
+            state.dialog = Some(Dialog::Create { parent: Some(parent), name: "Новая папка".to_owned() });
+            false
         }
         Action::NewRequest(parent) => {
             state.add_child(parent, Item::Request(Request::default()));

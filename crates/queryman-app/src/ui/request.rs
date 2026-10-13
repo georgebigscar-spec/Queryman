@@ -26,22 +26,19 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
         let mut close = None;
         let mut new_tab = false;
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
             for (i, tab) in state.tabs.iter().enumerate() {
                 let marker = if state.is_dirty(tab) { " *" } else { "" };
-                let label = format!("{}  {}{marker}", tab.request.method, tab.request.name);
-                let response = ui.selectable_label(i == state.active, label);
-                if response.clicked() {
+                let title = format!("{}{marker}", tab.request.name);
+                let event = components::request_tab(ui, tab.id, &tab.request.method, &title, i == state.active);
+                if event.select {
                     select = Some(i);
                 }
-                if response.middle_clicked() {
+                if event.close {
                     close = Some(i);
                 }
-                if ui.small_button("×").on_hover_text("Закрыть (Ctrl+W)").clicked() {
-                    close = Some(i);
-                }
-                ui.add_space(6.0);
             }
-            if ui.small_button("+").on_hover_text("Новая вкладка (Ctrl+T)").clicked() {
+            if components::ghost(ui, "+").on_hover_text("Новая вкладка (Ctrl+T)").clicked() {
                 new_tab = true;
             }
         });
@@ -107,7 +104,7 @@ pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
 
         ui.horizontal(|ui| {
             components::muted(ui, "Название");
-            action.changed |= ui.add(egui::TextEdit::singleline(&mut tab.request.name).desired_width(320.0)).changed();
+            action.changed |= components::input(ui, &mut tab.request.name, "Название запроса", 320.0).changed();
         });
         ui.add_space(4.0);
     });

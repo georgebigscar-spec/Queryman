@@ -156,3 +156,48 @@ pub fn dialog_footer(ui: &mut egui::Ui, action: &str, destructive: bool) -> Opti
         None
     })
 }
+
+/// Что произошло с вкладкой запроса в этом кадре.
+#[derive(Default)]
+pub struct TabEvent {
+    pub select: bool,
+    pub close: bool,
+}
+
+/// Вкладка запроса: метод, название и крестик внутри одной кнопки.
+/// Клик выбирает вкладку, средняя кнопка мыши или крестик закрывают её.
+pub fn request_tab(ui: &mut egui::Ui, id: u64, method: &Method, title: &str, active: bool) -> TabEvent {
+    let t = sc::Theme::get(ui.ctx());
+    let mut close = false;
+    let builder = egui::UiBuilder::new().id_salt(("request_tab", id)).sense(egui::Sense::click());
+    let response = ui
+        .scope_builder(builder, |ui| {
+            let hovered = ui.response().hovered();
+            let (fill, stroke) = if active {
+                (t.background, t.border)
+            } else if hovered {
+                (t.accent, Color32::TRANSPARENT)
+            } else {
+                (t.muted, Color32::TRANSPARENT)
+            };
+            egui::Frame::new()
+                .fill(fill)
+                .stroke(egui::Stroke::new(1.0, stroke))
+                .corner_radius(t.radius_md())
+                .inner_margin(egui::Margin { left: 10, right: 4, top: 4, bottom: 4 })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        ui.add(egui::Label::new(method_text(method).size(11.0)).selectable(false));
+                        let color = if active { t.foreground } else { t.muted_foreground };
+                        ui.add(egui::Label::new(RichText::new(title).color(color)).selectable(false).truncate());
+                        let x = egui::Button::new(RichText::new("×").size(15.0).color(t.muted_foreground))
+                            .frame(false)
+                            .min_size(egui::vec2(20.0, 20.0));
+                        close = ui.add(x).on_hover_text("Закрыть (Ctrl+W)").clicked();
+                    });
+                });
+        })
+        .response;
+    TabEvent { select: response.clicked() && !close, close: close || response.middle_clicked() }
+}
