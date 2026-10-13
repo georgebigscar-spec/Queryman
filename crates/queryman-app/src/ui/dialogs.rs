@@ -4,6 +4,7 @@
 use super::{components, request};
 use crate::state::{AppState, Dialog, Node};
 use eframe::egui;
+use queryman_core::collection::{Folder, Item};
 
 /// Возвращает `true`, если данные изменились и их нужно сохранить.
 pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
@@ -11,17 +12,11 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
     let mut changed = false;
 
     let outcome = match &mut dialog {
-        Dialog::Rename { name, .. } => {
-            let (answer, close) = components::dialog(ctx, "rename", "Переименовать", None, |ui| {
-                let input = components::input(ui, name, "Название", ui.available_width());
-                if ui.memory(|m| m.focused().is_none()) {
-                    input.request_focus();
-                }
-                let enter = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                components::dialog_footer(ui, "Сохранить", false).or(enter.then_some(true))
-            });
-            answer.or(close.then_some(false))
+        Dialog::Create { parent, name } => {
+            let title = if parent.is_some() { "Новая папка" } else { "Новая коллекция" };
+            name_dialog(ctx, "create", title, "Создать", name)
         }
+        Dialog::Rename { name, .. } => name_dialog(ctx, "rename", "Переименовать", "Сохранить", name),
         Dialog::Delete { node, title } => {
             let what = match node {
                 Node::Collection(_) => "Коллекция будет удалена вместе со всеми папками и запросами.",
@@ -93,6 +88,20 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
         Some(true) => {
             changed = true;
             match dialog {
+                Dialog::Create { parent, name } => {
+                    let name = name.trim().to_owned();
+                    match parent {
+                        None => {
+                            let name = if name.is_empty() { "Новая коллекция".to_owned() } else { name };
+                            let id = state.add_collection(name);
+                            state.tree_selection = Some(Node::Collection(id));
+                        }
+                        Some(parent) => {
+                            let name = if name.is_empty() { "Новая папка".to_owned() } else { name };
+                            state.add_child(parent, Item::Folder(Folder { name, ..Default::default() }));
+                        }
+                    }
+                }
                 Dialog::Rename { node, name } => {
                     if !name.trim().is_empty() {
                         state.rename(node, name.trim().to_owned());
@@ -115,4 +124,17 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
         }
     }
     changed
+}
+
+/// Диалог с одним полем названия: Enter подтверждает, Esc и «Отмена» закрывают.
+fn name_dialog(ctx: &egui::Context, id: &str, title: &str, action: &str, name: &mut String) -> Option<bool> {
+    let (answer, close) = components::dialog(ctx, id, title, None, |ui| {
+        let input = components::input(ui, name, "Название", ui.available_width());
+        if ui.memory(|m| m.focused().is_none()) {
+            input.request_focus();
+        }
+        let enter = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        components::dialog_footer(ui, action, false).or(enter.then_some(true))
+    });
+    answer.or(close.then_some(false))
 }
