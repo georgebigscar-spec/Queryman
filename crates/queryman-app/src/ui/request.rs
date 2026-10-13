@@ -4,6 +4,7 @@ use super::{components, kv};
 use crate::state::AppState;
 use eframe::egui;
 use queryman_core::model::{ApiKeyLocation, Auth, Body, Method, RawKind, RequestSettings};
+use queryman_core::script::Scripts;
 use queryman_core::url_sync;
 use queryman_http::DEFAULT_TIMEOUT_MS;
 
@@ -117,7 +118,16 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         let tab = state.active_tab_mut();
         let headers_label =
             format!("Headers ({})", tab.request.headers.iter().filter(|h| h.enabled && !h.key.is_empty()).count());
-        components::tabs(ui, &mut tab.section, &["Params", headers_label.as_str(), "Body", "Auth", "Settings"]);
+        let script_count = [&tab.request.scripts.pre_request, &tab.request.scripts.test]
+            .iter()
+            .filter(|s| !s.trim().is_empty())
+            .count();
+        let scripts_label = if script_count == 0 { "Scripts".to_owned() } else { format!("Scripts ({script_count})") };
+        components::tabs(
+            ui,
+            &mut tab.section,
+            &["Params", headers_label.as_str(), "Body", "Auth", scripts_label.as_str(), "Settings"],
+        );
         ui.add_space(8.0);
 
         egui::ScrollArea::vertical().id_salt(("editor", tab.id)).auto_shrink([false, false]).show(ui, |ui| {
@@ -131,6 +141,7 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 1 => changed |= kv::table(ui, "headers", &mut tab.request.headers, "Заголовок", "Значение"),
                 2 => changed |= body_editor(ui, &mut tab.request.body),
                 3 => changed |= auth_editor(ui, &mut tab.request.auth),
+                4 => changed |= scripts_editor(ui, &mut tab.script_section, &mut tab.request.scripts),
                 _ => changed |= settings_editor(ui, &mut tab.request.settings),
             }
         });
@@ -264,6 +275,55 @@ pub fn auth_editor(ui: &mut egui::Ui, auth: &mut Auth) -> bool {
     }
     ui.add_space(8.0);
     components::muted(ui, "Заголовок Authorization, заданный вручную во вкладке Headers, важнее этих настроек.");
+    changed
+}
+
+/// Готовые фрагменты: название кнопки, вкладка (0 — pre-request, 1 — tests), код.
+const SNIPPETS: [(&str, usize, &str); 6] = [
+    ("Задать переменную окружения", 0, "pm.environment.set(\"name\", \"value\");\n"),
+    ("Добавить заголовок", 0, "pm.request.headers.upsert({ key: \"X-Request-Id\", value: pm.variables.replaceIn(\"{{$uuid}}\") });\n"),
+    ("Статус 200", 1, "pm.test(\"Статус 200\", () => {\n    pm.response.to.have.status(200);\n});\n"),
+    ("Время ответа", 1, "pm.test(\"Ответ быстрее 500 мс\", () => {\n    pm.expect(pm.response.responseTime).to.be.below(500);\n});\n"),
+    ("Поле в JSON", 1, "pm.test(\"В ответе есть id\", () => {\n    const data = pm.response.json();\n    pm.expect(data).to.have.property(\"id\");\n});\n"),
+    ("Сохранить токен", 1, "const data = pm.response.json();\npm.environment.set(\"token\", data.token);\n"),
+];
+
+fn scripts_editor(ui: &mut egui::Ui, section: &mut usize, scripts: &mut Scripts) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        components::toggle_group(ui, section, &["Pre-request", "Tests"]);
+        ui.add_space(8.0);
+        let hint = if *section == 0 {
+            "Выполняется перед отправкой: может менять запрос и переменные."
+        } else {
+            "Выполняется после ответа: pm.test, pm.expect, pm.response."
+        };
+        components::muted(ui, hint);
+    });
+    ui.add_space(6.0);
+    let text = if *section == 0 { &mut scripts.pre_request } else { &mut scripts.test };
+    ui.horizontal_wrapped(|ui| {
+        components::muted(ui, "Вставить:");
+        for (label, target, code) in SNIPPETS {
+            if target == *section && components::ghost(ui, label).clicked() {
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(code);
+                changed = true;
+            }
+        }
+    });
+    ui.add_space(4.0);
+    changed |= ui
+        .add(
+            egui::TextEdit::multiline(text)
+                .code_editor()
+                .desired_width(f32::INFINITY)
+                .desired_rows(14)
+                .hint_text("// JavaScript, объект pm как в Postman"),
+        )
+        .changed();
     changed
 }
 

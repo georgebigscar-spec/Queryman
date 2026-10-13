@@ -20,6 +20,10 @@ Rust + egui + [shadcn_egui](https://github.com/georgebigscar-spec/shadcn_egui).
 - сохранение вкладки в коллекцию (Ctrl+S), несохранённые правки помечены `*` на вкладке;
 - история отправленных запросов (до 500 записей, без тел ответов), повтор в новой вкладке;
 - сохранение тела ответа в файл через системный диалог;
+- скрипты pre-request и tests на JavaScript (встроенный QuickJS, вкладка Scripts): объект `pm` как в Postman —
+  `pm.environment` / `pm.globals` / `pm.variables`, `pm.request` (метод, URL, заголовки, тело), `pm.response`,
+  `pm.test`, `pm.expect` (основные утверждения chai), `console.log`; результаты — во вкладках Tests и Console ответа.
+  Каждый скрипт ограничен 5 секундами и 64 МБ памяти;
 - автосохранение вкладок, окружений, коллекций и истории в JSON (атомарная запись, повреждённые файлы → `*.corrupt`).
 
 Дальше по плану v1.0: импорт cURL и Postman, form-data и binary-тела, остальные виды авторизации.
@@ -44,6 +48,7 @@ crates/
 ├── queryman-core/      модель, переменные, URL ↔ Params, подготовка запроса, протокол
 ├── queryman-http/      исполнитель на reqwest (rustls), пул клиентов, cookie jar
 ├── queryman-storage/   JSON-файлы, schema_version, атомарная запись
+├── queryman-script/    скрипты pre-request/tests на QuickJS, API pm.* (prelude.js)
 ├── queryman-io/        экспорт cURL (импорт cURL и Postman — этап v1.0)
 └── queryman-app/       eframe, UI, рабочий поток
     └── src/ui/components.rs — единственное место вызовов shadcn_egui

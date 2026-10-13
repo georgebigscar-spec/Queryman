@@ -1,7 +1,7 @@
 //! Сообщения между UI-потоком и рабочим потоком (раздел 3).
 
-use crate::model::{ResponseData, WorkspaceSnapshot};
-use crate::prepare::ResolvedRequest;
+use crate::model::{Auth, Environment, Request, ResponseData, Variable, WorkspaceSnapshot};
+use crate::script::ScriptReport;
 
 pub type TabId = u64;
 
@@ -10,7 +10,7 @@ pub type TabId = u64;
 pub enum Command {
     Send {
         tab: TabId,
-        request: ResolvedRequest,
+        job: Box<SendJob>,
     },
     Cancel {
         tab: TabId,
@@ -24,6 +24,16 @@ pub enum Command {
     Shutdown,
 }
 
+/// Всё, что нужно рабочему потоку, чтобы выполнить скрипты, подставить переменные и отправить запрос.
+#[derive(Debug, Clone)]
+pub struct SendJob {
+    pub request: Request,
+    pub environment: Option<Environment>,
+    pub globals: Vec<Variable>,
+    /// Авторизация папки или коллекции для режима Inherit.
+    pub parent_auth: Option<Auth>,
+}
+
 /// Текст ответа, подготовленный в рабочем потоке, чтобы UI не форматировал
 /// большие тела в кадре отрисовки (NFR-03).
 #[derive(Debug, Clone, Default)]
@@ -35,12 +45,15 @@ pub struct ResponseText {
 }
 
 /// Рабочий поток → UI.
+// Событий в полёте единицы, поэтому крупный вариант не упаковывается в Box.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Event {
     ResponseReady {
         tab: TabId,
         result: Result<ResponseData, HttpError>,
         text: ResponseText,
+        scripts: ScriptReport,
     },
     Saved,
     /// Сообщение для пользователя об успешном действии.
