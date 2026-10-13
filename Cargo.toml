@@ -35,6 +35,8 @@ url = "2"
 base64 = "0.22"
 time = { version = "0.3", features = ["formatting"] }
 directories = "6"
+# Системный диалог «Сохранить как»: на Linux через xdg-desktop-portal, без GTK
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
 
 # Ошибки и логи
 thiserror = "2"

@@ -8,9 +8,19 @@ pub type TabId = u64;
 /// UI → рабочий поток.
 #[derive(Debug)]
 pub enum Command {
-    Send { tab: TabId, request: ResolvedRequest },
-    Cancel { tab: TabId },
+    Send {
+        tab: TabId,
+        request: ResolvedRequest,
+    },
+    Cancel {
+        tab: TabId,
+    },
     Save(Box<WorkspaceSnapshot>),
+    /// Спросить путь и записать тело ответа целиком (FR-24).
+    SaveResponse {
+        body: Vec<u8>,
+        file_name: String,
+    },
     Shutdown,
 }
 
@@ -27,9 +37,18 @@ pub struct ResponseText {
 /// Рабочий поток → UI.
 #[derive(Debug)]
 pub enum Event {
-    ResponseReady { tab: TabId, result: Result<ResponseData, HttpError>, text: ResponseText },
+    ResponseReady {
+        tab: TabId,
+        result: Result<ResponseData, HttpError>,
+        text: ResponseText,
+    },
     Saved,
-    Error { context: String, message: String },
+    /// Сообщение для пользователя об успешном действии.
+    Notice(String),
+    Error {
+        context: String,
+        message: String,
+    },
 }
 
 /// Сетевые ошибки в понятном виде (FR-26).

@@ -1,4 +1,5 @@
 pub mod components;
+pub mod dialogs;
 pub mod environments;
 pub mod header;
 pub mod kv;

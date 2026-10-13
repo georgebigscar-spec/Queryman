@@ -125,6 +125,28 @@ async fn run(
                 };
                 emit(&events, &ctx, event);
             }
+            Command::SaveResponse { body, file_name } => {
+                let events = events.clone();
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    let Some(file) = rfd::AsyncFileDialog::new().set_file_name(&file_name).save_file().await else {
+                        return; // пользователь закрыл диалог
+                    };
+                    let path = file.path().to_owned();
+                    let size = body.len() as u64;
+                    let outcome = tokio::task::spawn_blocking(move || std::fs::write(&path, body).map(|()| path)).await;
+                    let event = match outcome {
+                        Ok(Ok(path)) => Event::Notice(format!("Ответ сохранён: {} ({size} Б)", path.display())),
+                        Ok(Err(e)) => {
+                            Event::Error { context: "Сохранение ответа".into(), message: e.to_string() }
+                        }
+                        Err(e) => {
+                            Event::Error { context: "Сохранение ответа".into(), message: e.to_string() }
+                        }
+                    };
+                    emit(&events, &ctx, event);
+                });
+            }
             Command::Shutdown => break,
         }
     }

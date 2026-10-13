@@ -3,8 +3,11 @@
 use super::components;
 use crate::state::{AppState, TabResponse};
 use eframe::egui::{self, RichText};
+use queryman_core::model::ResponseData;
 
-pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
+/// Возвращает тело и предлагаемое имя файла, если пользователь нажал «Сохранить в файл».
+pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)> {
+    let mut save = None;
     egui::Panel::bottom("response").resizable(true).default_size(360.0).min_size(120.0).show(ui, |ui| {
         ui.add_space(6.0);
         let tab = state.active_tab_mut();
@@ -63,8 +66,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
                         if components::ghost(ui, "Копировать").clicked() {
                             ui.ctx().copy_text(shown.to_owned());
                         }
+                        if components::ghost(ui, "Сохранить в файл").on_hover_text("Тело ответа целиком").clicked()
+                        {
+                            save = Some((data.body.clone(), suggested_file_name(data)));
+                        }
                         if text.truncated {
-                            components::muted(ui, "Показан первый 1 МБ. Сохранение в файл — этап MVP (FR-24).");
+                            components::muted(ui, "Показан первый 1 МБ. Ответ целиком — «Сохранить в файл».");
                         }
                     });
                     tab.pretty_view = view == 0;
@@ -100,4 +107,38 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
             }
         }
     });
+    save
+}
+
+/// Имя файла из последнего сегмента пути и расширение по Content-Type.
+fn suggested_file_name(data: &ResponseData) -> String {
+    let stem = url::Url::parse(&data.final_url)
+        .ok()
+        .and_then(|u| u.path_segments().and_then(|mut s| s.next_back().map(str::to_owned)))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "response".to_owned());
+    if stem.contains('.') {
+        return stem;
+    }
+    let ct = data.content_type().unwrap_or_default().to_ascii_lowercase();
+    let ext = if ct.contains("json") {
+        "json"
+    } else if ct.contains("html") {
+        "html"
+    } else if ct.contains("xml") {
+        "xml"
+    } else if ct.contains("javascript") {
+        "js"
+    } else if ct.contains("csv") {
+        "csv"
+    } else if ct.starts_with("text/") {
+        "txt"
+    } else if let Some(sub) = ct.strip_prefix("image/") {
+        sub.split([';', '+']).next().unwrap_or("bin")
+    } else if ct.contains("pdf") {
+        "pdf"
+    } else {
+        "bin"
+    };
+    format!("{stem}.{ext}")
 }

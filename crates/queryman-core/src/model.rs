@@ -269,6 +269,9 @@ pub struct WorkspaceSnapshot {
     pub workspace: Workspace,
     pub environments: Vec<Environment>,
     pub globals: Vec<Variable>,
+    pub collections: Vec<crate::collection::Collection>,
+    /// Новые записи первыми.
+    pub history: Vec<crate::collection::HistoryEntry>,
 }
 
 /// Полученный ответ. Тело в историю не пишется.
