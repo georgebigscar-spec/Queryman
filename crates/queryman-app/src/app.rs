@@ -1,9 +1,9 @@
 //! Главный цикл приложения: события рабочего потока, горячие клавиши, панели.
 
+use crate::fonts;
 use crate::state::{AppState, TabResponse};
 use crate::ui::{self, components};
 use crate::worker::{self, WorkerHandle};
-use crate::fonts;
 use eframe::egui;
 use queryman_core::model::{Variable, WorkspaceSnapshot};
 use queryman_core::prepare::{prepare, ResolvedRequest};
@@ -21,12 +21,15 @@ pub struct QuerymanApp {
     store: Option<Store>,
     dirty_since: Option<Instant>,
     saved_on_exit: bool,
+    /// Последняя известная системная тема: тему приложения меняем вслед за ней.
+    system_theme: Option<egui::Theme>,
 }
 
 impl QuerymanApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let ctx = cc.egui_ctx.clone();
-        components::install_theme(&ctx, ctx.style().visuals.dark_mode);
+        let system_theme = ctx.system_theme();
+        components::install_theme(&ctx, system_theme.unwrap_or(egui::Theme::Dark) == egui::Theme::Dark);
         fonts::install(&ctx);
 
         let (store, snapshot, warnings) = match Store::open_default() {
@@ -47,7 +50,14 @@ impl QuerymanApp {
         }
 
         let worker = worker::spawn(ctx, store.clone());
-        Self { state: AppState::from_snapshot(snapshot), worker, store, dirty_since: None, saved_on_exit: false }
+        Self {
+            state: AppState::from_snapshot(snapshot),
+            worker,
+            store,
+            dirty_since: None,
+            saved_on_exit: false,
+            system_theme,
+        }
     }
 
     fn resolve_active(&self) -> ResolvedRequest {
@@ -156,17 +166,27 @@ impl QuerymanApp {
 }
 
 impl eframe::App for QuerymanApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events(ctx);
+        let system_theme = ctx.system_theme();
+        if system_theme.is_some() && system_theme != self.system_theme {
+            self.system_theme = system_theme;
+            components::install_theme(ctx, system_theme == Some(egui::Theme::Dark));
+        }
+    }
+
+    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = root.ctx().clone();
+        let ctx = &ctx;
         let mut changed = self.handle_hotkeys(ctx);
 
         // Порядок панелей важен: сначала края, потом центральная область.
-        changed |= ui::header::show(ctx, &mut self.state);
-        changed |= ui::sidebar::show(ctx, &mut self.state);
-        let bar = ui::request::show_bar(ctx, &mut self.state);
+        changed |= ui::header::show(root, &mut self.state);
+        changed |= ui::sidebar::show(root, &mut self.state);
+        let bar = ui::request::show_bar(root, &mut self.state);
         changed |= bar.changed;
-        ui::response::show(ctx, &mut self.state);
-        changed |= ui::request::show_editor(ctx, &mut self.state);
+        ui::response::show(root, &mut self.state);
+        changed |= ui::request::show_editor(root, &mut self.state);
         changed |= ui::environments::show(ctx, &mut self.state);
         components::show_toasts(ctx);
 

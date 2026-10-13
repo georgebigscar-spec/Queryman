@@ -15,53 +15,50 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
     let mut add = false;
     let mut delete = None;
 
-    egui::Window::new("Окружения")
-        .open(&mut open)
-        .default_size([720.0, 440.0])
-        .show(ctx, |ui| {
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(180.0);
-                    if ui.selectable_label(state.env_editor_selection.is_none(), "Глобальные").clicked() {
-                        select = Some(None);
-                    }
-                    ui.separator();
-                    for (i, env) in state.environments.iter().enumerate() {
-                        let active = state.active_env == Some(env.id);
-                        let label = if active { format!("● {}", env.name) } else { env.name.clone() };
-                        if ui.selectable_label(state.env_editor_selection == Some(i), label).clicked() {
-                            select = Some(Some(i));
-                        }
-                    }
-                    ui.add_space(8.0);
-                    if components::outline(ui, "+ Окружение").clicked() {
-                        add = true;
-                    }
-                });
+    egui::Window::new("Окружения").open(&mut open).default_size([720.0, 440.0]).show(ctx, |ui| {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(180.0);
+                if ui.selectable_label(state.env_editor_selection.is_none(), "Глобальные").clicked() {
+                    select = Some(None);
+                }
                 ui.separator();
-                ui.vertical(|ui| match state.env_editor_selection {
-                    None => {
-                        components::heading(ui, "Глобальные переменные");
-                        components::muted(ui, "Действуют всегда; окружение переопределяет их значения.");
+                for (i, env) in state.environments.iter().enumerate() {
+                    let active = state.active_env == Some(env.id);
+                    let label = if active { format!("● {}", env.name) } else { env.name.clone() };
+                    if ui.selectable_label(state.env_editor_selection == Some(i), label).clicked() {
+                        select = Some(Some(i));
+                    }
+                }
+                ui.add_space(8.0);
+                if components::outline(ui, "+ Окружение").clicked() {
+                    add = true;
+                }
+            });
+            ui.separator();
+            ui.vertical(|ui| match state.env_editor_selection {
+                None => {
+                    components::heading(ui, "Глобальные переменные");
+                    components::muted(ui, "Действуют всегда; окружение переопределяет их значения.");
+                    ui.add_space(6.0);
+                    changed |= kv::table(ui, "globals", &mut state.globals, "Переменная", "Значение");
+                }
+                Some(i) => {
+                    if let Some(env) = state.environments.get_mut(i) {
+                        ui.horizontal(|ui| {
+                            ui.label("Название");
+                            changed |= ui.text_edit_singleline(&mut env.name).changed();
+                            if components::ghost(ui, "Удалить").clicked() {
+                                delete = Some(i);
+                            }
+                        });
                         ui.add_space(6.0);
-                        changed |= kv::table(ui, "globals", &mut state.globals, "Переменная", "Значение");
+                        changed |= kv::table(ui, "env_vars", &mut env.variables, "Переменная", "Значение");
                     }
-                    Some(i) => {
-                        if let Some(env) = state.environments.get_mut(i) {
-                            ui.horizontal(|ui| {
-                                ui.label("Название");
-                                changed |= ui.text_edit_singleline(&mut env.name).changed();
-                                if components::ghost(ui, "Удалить").clicked() {
-                                    delete = Some(i);
-                                }
-                            });
-                            ui.add_space(6.0);
-                            changed |= kv::table(ui, "env_vars", &mut env.variables, "Переменная", "Значение");
-                        }
-                    }
-                });
+                }
             });
         });
+    });
 
     if let Some(selection) = select {
         state.env_editor_selection = selection;

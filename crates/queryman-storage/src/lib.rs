@@ -122,12 +122,9 @@ impl Store {
             }
             Err(e) => warnings.push(format!("Не удалось прочитать окружения: {e}")),
         }
-        environments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        environments.sort_by_key(|e| e.name.to_lowercase());
 
-        LoadReport {
-            snapshot: WorkspaceSnapshot { workspace, environments, globals: globals.variables },
-            warnings,
-        }
+        LoadReport { snapshot: WorkspaceSnapshot { workspace, environments, globals: globals.variables }, warnings }
     }
 
     pub fn save(&self, snapshot: &WorkspaceSnapshot) -> Result<(), StorageError> {
@@ -197,8 +194,8 @@ fn read_versioned<T: DeserializeOwned>(path: &Path, warnings: &mut Vec<String>) 
 
 fn write_versioned<T: Serialize>(path: &Path, data: &T) -> Result<(), StorageError> {
     let value = VersionedRef { schema_version: SCHEMA_VERSION, data };
-    let bytes = serde_json::to_vec_pretty(&value)
-        .map_err(|source| StorageError::Json { path: path.to_owned(), source })?;
+    let bytes =
+        serde_json::to_vec_pretty(&value).map_err(|source| StorageError::Json { path: path.to_owned(), source })?;
     atomic_write(path, &bytes)
 }
 
@@ -223,7 +220,11 @@ mod tests {
     use queryman_core::model::{KeyValue, Request};
 
     fn sample() -> WorkspaceSnapshot {
-        let env = Environment { name: "dev".into(), variables: vec![Variable::new("host", "localhost")], ..Default::default() };
+        let env = Environment {
+            name: "dev".into(),
+            variables: vec![Variable::new("host", "localhost")],
+            ..Default::default()
+        };
         let mut tab = Request { url: "{{host}}/users".into(), ..Default::default() };
         tab.headers = vec![KeyValue::new("Accept", "application/json"), KeyValue::default()];
         WorkspaceSnapshot {

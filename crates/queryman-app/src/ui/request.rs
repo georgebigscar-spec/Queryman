@@ -15,9 +15,9 @@ pub struct BarAction {
     pub changed: bool,
 }
 
-pub fn show_bar(ctx: &egui::Context, state: &mut AppState) -> BarAction {
+pub fn show_bar(ui: &mut egui::Ui, state: &mut AppState) -> BarAction {
     let mut action = BarAction::default();
-    egui::TopBottomPanel::top("request_bar").show(ctx, |ui| {
+    egui::Panel::top("request_bar").show(ui, |ui| {
         ui.add_space(6.0);
 
         // Полоса вкладок (FR-32).
@@ -96,27 +96,24 @@ pub fn show_bar(ctx: &egui::Context, state: &mut AppState) -> BarAction {
 
         ui.horizontal(|ui| {
             components::muted(ui, "Название");
-            action.changed |= ui
-                .add(egui::TextEdit::singleline(&mut tab.request.name).desired_width(320.0))
-                .changed();
+            action.changed |= ui.add(egui::TextEdit::singleline(&mut tab.request.name).desired_width(320.0)).changed();
         });
         ui.add_space(4.0);
     });
     action
 }
 
-pub fn show_editor(ctx: &egui::Context, state: &mut AppState) -> bool {
+pub fn show_editor(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut changed = false;
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         let tab = state.active_tab_mut();
-        let headers_label = format!("Headers ({})", tab.request.headers.iter().filter(|h| h.enabled && !h.key.is_empty()).count());
+        let headers_label =
+            format!("Headers ({})", tab.request.headers.iter().filter(|h| h.enabled && !h.key.is_empty()).count());
         components::tabs(ui, &mut tab.section, &["Params", headers_label.as_str(), "Body", "Auth", "Settings"]);
         ui.add_space(8.0);
 
-        egui::ScrollArea::vertical()
-            .id_salt(("editor", tab.id))
-            .auto_shrink([false, false])
-            .show(ui, |ui| match tab.section {
+        egui::ScrollArea::vertical().id_salt(("editor", tab.id)).auto_shrink([false, false]).show(ui, |ui| {
+            match tab.section {
                 0 => {
                     if kv::table(ui, "params", &mut tab.request.query, "Параметр", "Значение") {
                         tab.request.url = url_sync::url_from_params(&tab.request.url, &tab.request.query);
@@ -127,7 +124,8 @@ pub fn show_editor(ctx: &egui::Context, state: &mut AppState) -> bool {
                 2 => changed |= body_editor(ui, &mut tab.request.body),
                 3 => changed |= auth_editor(ui, &mut tab.request.auth),
                 _ => changed |= settings_editor(ui, &mut tab.request.settings),
-            });
+            }
+        });
     });
     changed
 }
@@ -177,12 +175,7 @@ fn body_editor(ui: &mut egui::Ui, body: &mut Body) -> bool {
                 }
             });
             changed |= ui
-                .add(
-                    egui::TextEdit::multiline(text)
-                        .code_editor()
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(16),
-                )
+                .add(egui::TextEdit::multiline(text).code_editor().desired_width(f32::INFINITY).desired_rows(16))
                 .changed();
         }
         Body::UrlEncoded(fields) => changed |= kv::table(ui, "urlencoded", fields, "Поле", "Значение"),
@@ -220,7 +213,9 @@ fn auth_editor(ui: &mut egui::Ui, auth: &mut Auth) -> bool {
 
     let width = 360.0;
     match auth {
-        Auth::Inherit => components::muted(ui, "Берётся у папки или коллекции. Вне коллекции запрос уходит без авторизации."),
+        Auth::Inherit => {
+            components::muted(ui, "Берётся у папки или коллекции. Вне коллекции запрос уходит без авторизации.")
+        }
         Auth::None => components::muted(ui, "Заголовки авторизации не добавляются."),
         Auth::ApiKey { key, value, location } => {
             egui::Grid::new("auth_api_key").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
@@ -277,7 +272,10 @@ fn settings_editor(ui: &mut egui::Ui, settings: &mut RequestSettings) -> bool {
     ui.add_space(6.0);
     changed |= components::switch(ui, &mut settings.verify_tls, "Проверять TLS-сертификат").changed();
     if !settings.verify_tls {
-        ui.colored_label(components::ERROR_COLOR, "Проверка сертификата отключена — соединение может быть небезопасным.");
+        ui.colored_label(
+            components::ERROR_COLOR,
+            "Проверка сертификата отключена — соединение может быть небезопасным.",
+        );
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
