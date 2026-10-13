@@ -1,13 +1,14 @@
 //! Главный цикл приложения: события рабочего потока, горячие клавиши, панели.
 
 use crate::fonts;
-use crate::state::{AppState, TabResponse};
+use crate::state::{AppState, Dialog, TabResponse};
 use crate::ui::{self, components};
 use crate::worker::{self, WorkerHandle};
 use eframe::egui;
+use queryman_core::collection::HistoryEntry;
 use queryman_core::model::{Variable, WorkspaceSnapshot};
 use queryman_core::prepare::{prepare, ResolvedRequest};
-use queryman_core::protocol::{Command, Event};
+use queryman_core::protocol::{Command, Event, HttpError};
 use queryman_core::vars::Resolver;
 use queryman_storage::Store;
 use std::time::{Duration, Instant};
@@ -63,8 +64,9 @@ impl QuerymanApp {
     fn resolve_active(&self) -> ResolvedRequest {
         let env_vars: &[Variable] = self.state.active_environment().map(|e| e.variables.as_slice()).unwrap_or(&[]);
         let resolver = Resolver::new().with_layer(env_vars).with_layer(&self.state.globals);
-        // Коллекций пока нет, поэтому Inherit = без авторизации.
-        prepare(&self.state.active_tab().request, &resolver, None)
+        let request = &self.state.active_tab().request;
+        let parent_auth = self.state.inherited_auth(request.id);
+        prepare(request, &resolver, parent_auth.as_ref())
     }
 
     fn send_active(&mut self, ctx: &egui::Context) {
@@ -74,6 +76,7 @@ impl QuerymanApp {
         }
         let request = self.resolve_active();
         let tab = self.state.active_tab_mut();
+        tab.sent = Some((tab.request.without_blank_rows(), unix_ms()));
         tab.in_flight = Some(Instant::now());
         tab.response = None;
         let id = tab.id;
@@ -93,38 +96,74 @@ impl QuerymanApp {
         components::notify(ctx, "Команда cURL скопирована — она может содержать секреты");
     }
 
-    fn drain_events(&mut self, ctx: &egui::Context) {
+    /// Ctrl+S: связанная вкладка сохраняется сразу, новая — через диалог выбора коллекции.
+    fn save_active(&mut self) -> bool {
+        let tab = self.state.active_tab();
+        let (id, name) = (tab.id, tab.request.name.clone());
+        if self.state.save_tab(id) {
+            return true;
+        }
+        let destination = (!self.state.collections.is_empty()).then_some(0);
+        self.state.dialog =
+            Some(Dialog::SaveRequest {
+                tab: id, name, destination, new_collection: "Моя коллекция".to_owned()
+            });
+        false
+    }
+
+    /// Вызывается до показа UI, поэтому должен вернуть, изменилось ли состояние для автосохранения.
+    fn drain_events(&mut self, ctx: &egui::Context) -> bool {
+        let mut changed = false;
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
                 Event::ResponseReady { tab, result, text } => {
-                    if let Some(tab) = self.state.tab_mut(tab) {
-                        tab.in_flight = None;
-                        tab.response = Some(match result {
-                            Ok(data) => TabResponse::Ok { data, text },
-                            Err(e) => TabResponse::Err(e),
+                    let Some(tab) = self.state.tab_mut(tab) else { continue };
+                    tab.in_flight = None;
+                    let sent = tab.sent.take();
+                    let entry =
+                        sent.filter(|_| !matches!(result, Err(HttpError::Cancelled))).map(|(request, sent_at_ms)| {
+                            HistoryEntry {
+                                sent_at_ms,
+                                request,
+                                status: result.as_ref().ok().map(|d| d.status),
+                                error: result.as_ref().err().map(|e| e.to_string()),
+                                elapsed_ms: result.as_ref().ok().map(|d| d.elapsed_ms),
+                                ..Default::default()
+                            }
                         });
+                    tab.response = Some(match result {
+                        Ok(data) => TabResponse::Ok { data, text },
+                        Err(e) => TabResponse::Err(e),
+                    });
+                    if let Some(entry) = entry {
+                        self.state.record_history(entry);
+                        changed = true;
                     }
                 }
                 Event::Saved => {}
+                Event::Notice(message) => components::notify(ctx, &message),
                 Event::Error { context, message } => {
                     tracing::error!("{context}: {message}");
                     components::notify_error(ctx, &format!("{context}: {message}"));
                 }
             }
         }
+        changed
     }
 
     fn handle_hotkeys(&mut self, ctx: &egui::Context) -> bool {
         use egui::{Key, Modifiers};
         let in_flight = self.state.active_tab().in_flight.is_some();
-        let (send, cancel, new_tab, close_tab) = ctx.input_mut(|i| {
+        let (send, cancel, new_tab, close_tab, save) = ctx.input_mut(|i| {
             (
                 i.consume_key(Modifiers::COMMAND, Key::Enter),
                 in_flight && i.consume_key(Modifiers::NONE, Key::Escape),
                 i.consume_key(Modifiers::COMMAND, Key::T),
                 i.consume_key(Modifiers::COMMAND, Key::W),
+                i.consume_key(Modifiers::COMMAND, Key::S),
             )
         });
+        let saved = save && self.save_active();
         if send {
             self.send_active(ctx);
         }
@@ -137,7 +176,7 @@ impl QuerymanApp {
         if close_tab {
             self.state.close_tab(self.state.active);
         }
-        new_tab || close_tab
+        new_tab || close_tab || saved
     }
 
     fn autosave(&mut self, ctx: &egui::Context) {
@@ -167,7 +206,9 @@ impl QuerymanApp {
 
 impl eframe::App for QuerymanApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.drain_events(ctx);
+        if self.drain_events(ctx) {
+            self.dirty_since.get_or_insert_with(Instant::now);
+        }
         let system_theme = ctx.system_theme();
         if system_theme.is_some() && system_theme != self.system_theme {
             self.system_theme = system_theme;
@@ -185,9 +226,12 @@ impl eframe::App for QuerymanApp {
         changed |= ui::sidebar::show(root, &mut self.state);
         let bar = ui::request::show_bar(root, &mut self.state);
         changed |= bar.changed;
-        ui::response::show(root, &mut self.state);
+        if let Some((body, file_name)) = ui::response::show(root, &mut self.state) {
+            self.worker.send(Command::SaveResponse { body, file_name });
+        }
         changed |= ui::request::show_editor(root, &mut self.state);
         changed |= ui::environments::show(ctx, &mut self.state);
+        changed |= ui::dialogs::show(ctx, &mut self.state);
         components::show_toasts(ctx);
 
         if bar.send {
@@ -198,6 +242,9 @@ impl eframe::App for QuerymanApp {
         }
         if bar.copy_curl {
             self.copy_as_curl(ctx);
+        }
+        if bar.save {
+            changed |= self.save_active();
         }
 
         if changed {
@@ -214,4 +261,8 @@ impl eframe::App for QuerymanApp {
             self.save_on_exit();
         }
     }
+}
+
+pub(crate) fn unix_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }

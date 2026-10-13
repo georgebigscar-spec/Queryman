@@ -4,10 +4,13 @@
 //! <root>/
 //! ├── workspace.json      открытые вкладки и черновики, активное окружение
 //! ├── globals.json        глобальные переменные
-//! └── environments/<uuid>.json
+//! ├── history.json        история запросов без тел ответов
+//! ├── environments/<uuid>.json
+//! └── collections/<uuid>.json
 //! ```
 //! Каждый файл содержит `schema_version`. Запись атомарная: временный файл + rename.
 
+use queryman_core::collection::{Collection, HistoryEntry, HISTORY_LIMIT};
 use queryman_core::model::{Environment, Variable, Workspace, WorkspaceSnapshot};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -57,6 +60,12 @@ struct Globals {
     variables: Vec<Variable>,
 }
 
+#[derive(Default, Serialize, Deserialize)]
+struct History {
+    #[serde(default)]
+    entries: Vec<HistoryEntry>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Store {
     root: PathBuf,
@@ -82,8 +91,10 @@ impl Store {
 
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let root = root.into();
-        let envs = root.join("environments");
-        fs::create_dir_all(&envs).map_err(|source| StorageError::Io { path: envs, source })?;
+        for dir in ["environments", "collections"] {
+            let path = root.join(dir);
+            fs::create_dir_all(&path).map_err(|source| StorageError::Io { path, source })?;
+        }
         Ok(Self { root })
     }
 
@@ -99,32 +110,41 @@ impl Store {
         self.root.join("globals.json")
     }
 
+    fn history_path(&self) -> PathBuf {
+        self.root.join("history.json")
+    }
+
     fn environments_dir(&self) -> PathBuf {
         self.root.join("environments")
+    }
+
+    fn collections_dir(&self) -> PathBuf {
+        self.root.join("collections")
     }
 
     pub fn load(&self) -> LoadReport {
         let mut warnings = Vec::new();
         let workspace: Workspace = read_versioned(&self.workspace_path(), &mut warnings).unwrap_or_default();
         let globals: Globals = read_versioned(&self.globals_path(), &mut warnings).unwrap_or_default();
+        let mut history: History = read_versioned(&self.history_path(), &mut warnings).unwrap_or_default();
+        history.entries.truncate(HISTORY_LIMIT);
 
-        let mut environments = Vec::new();
-        match fs::read_dir(self.environments_dir()) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == "json") {
-                        if let Some(env) = read_versioned::<Environment>(&path, &mut warnings) {
-                            environments.push(env);
-                        }
-                    }
-                }
-            }
-            Err(e) => warnings.push(format!("Не удалось прочитать окружения: {e}")),
-        }
+        let mut environments: Vec<Environment> =
+            read_dir_versioned(&self.environments_dir(), "окружения", &mut warnings);
         environments.sort_by_key(|e| e.name.to_lowercase());
+        let mut collections: Vec<Collection> = read_dir_versioned(&self.collections_dir(), "коллекции", &mut warnings);
+        collections.sort_by_key(|c| c.name.to_lowercase());
 
-        LoadReport { snapshot: WorkspaceSnapshot { workspace, environments, globals: globals.variables }, warnings }
+        LoadReport {
+            snapshot: WorkspaceSnapshot {
+                workspace,
+                environments,
+                globals: globals.variables,
+                collections,
+                history: history.entries,
+            },
+            warnings,
+        }
     }
 
     pub fn save(&self, snapshot: &WorkspaceSnapshot) -> Result<(), StorageError> {
@@ -135,28 +155,80 @@ impl Store {
         let variables = snapshot.globals.iter().filter(|v| !v.is_blank()).cloned().collect();
         write_versioned(&self.globals_path(), &Globals { variables })?;
 
-        let dir = self.environments_dir();
-        let mut keep = HashSet::new();
-        for env in &snapshot.environments {
+        write_versioned(&self.history_path(), &History { entries: snapshot.history.clone() })?;
+
+        let environments = snapshot.environments.iter().map(|env| {
             let mut env = env.clone();
             env.variables.retain(|v| !v.is_blank());
-            let file_name = format!("{}.json", env.id);
-            write_versioned(&dir.join(&file_name), &env)?;
-            keep.insert(file_name);
-        }
-        // Удалённые окружения: убираем их файлы.
-        if let Ok(entries) = fs::read_dir(&dir) {
+            (env.id, env)
+        });
+        write_dir_versioned(&self.environments_dir(), environments)?;
+
+        let collections = snapshot.collections.iter().map(|c| (c.id, strip_collection(c)));
+        write_dir_versioned(&self.collections_dir(), collections)
+    }
+}
+
+/// Копия коллекции без пустых строк-заготовок в запросах.
+fn strip_collection(collection: &Collection) -> Collection {
+    use queryman_core::collection::Item;
+    fn strip(items: &[Item]) -> Vec<Item> {
+        items
+            .iter()
+            .map(|item| match item {
+                Item::Request(r) => Item::Request(r.without_blank_rows()),
+                Item::Folder(f) => {
+                    let mut f = f.clone();
+                    f.items = strip(&f.items);
+                    Item::Folder(f)
+                }
+            })
+            .collect()
+    }
+    Collection { items: strip(&collection.items), ..collection.clone() }
+}
+
+/// Читает все `*.json` каталога; повреждённые файлы пропускаются с предупреждением.
+fn read_dir_versioned<T: DeserializeOwned>(dir: &Path, what: &str, warnings: &mut Vec<String>) -> Vec<T> {
+    let mut out = Vec::new();
+    match fs::read_dir(dir) {
+        Ok(entries) => {
             for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.ends_with(".json") && !keep.contains(&name) {
-                    if let Err(e) = fs::remove_file(entry.path()) {
-                        tracing::warn!("не удалось удалить {name}: {e}");
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "json") {
+                    if let Some(item) = read_versioned::<T>(&path, warnings) {
+                        out.push(item);
                     }
                 }
             }
         }
-        Ok(())
+        Err(e) => warnings.push(format!("Не удалось прочитать {what}: {e}")),
     }
+    out
+}
+
+/// Пишет каждый элемент в `<uuid>.json` и удаляет файлы элементов, которых больше нет.
+fn write_dir_versioned<T: Serialize>(
+    dir: &Path,
+    items: impl Iterator<Item = (uuid::Uuid, T)>,
+) -> Result<(), StorageError> {
+    let mut keep = HashSet::new();
+    for (id, item) in items {
+        let file_name = format!("{id}.json");
+        write_versioned(&dir.join(&file_name), &item)?;
+        keep.insert(file_name);
+    }
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".json") && !keep.contains(&name) {
+                if let Err(e) = fs::remove_file(entry.path()) {
+                    tracing::warn!("не удалось удалить {name}: {e}");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn read_versioned<T: DeserializeOwned>(path: &Path, warnings: &mut Vec<String>) -> Option<T> {
@@ -217,6 +289,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use queryman_core::collection::Item;
     use queryman_core::model::{KeyValue, Request};
 
     fn sample() -> WorkspaceSnapshot {
@@ -231,6 +304,15 @@ mod tests {
             workspace: Workspace { tabs: vec![tab], active_tab: 0, active_env: Some(env.id) },
             environments: vec![env],
             globals: vec![Variable::new("token", "t"), Variable::default()],
+            collections: vec![Collection {
+                name: "api".into(),
+                items: vec![Item::Request(Request {
+                    headers: vec![KeyValue::new("X", "1"), KeyValue::default()],
+                    ..Default::default()
+                })],
+                ..Default::default()
+            }],
+            history: vec![HistoryEntry { status: Some(200), ..Default::default() }],
         }
     }
 
@@ -248,6 +330,21 @@ mod tests {
         assert_eq!(loaded.globals.len(), 1);
         assert_eq!(loaded.workspace.tabs[0].headers.len(), 1);
         assert_eq!(loaded.workspace.active_env, snap.workspace.active_env);
+        assert_eq!(loaded.history, snap.history);
+        let Item::Request(r) = &loaded.collections[0].items[0] else { panic!() };
+        assert_eq!(r.headers.len(), 1);
+    }
+
+    #[test]
+    fn deleted_collection_file_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let mut snap = sample();
+        store.save(&snap).unwrap();
+        assert_eq!(fs::read_dir(dir.path().join("collections")).unwrap().count(), 1);
+        snap.collections.clear();
+        store.save(&snap).unwrap();
+        assert_eq!(fs::read_dir(dir.path().join("collections")).unwrap().count(), 0);
     }
 
     #[test]
