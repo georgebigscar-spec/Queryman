@@ -53,6 +53,12 @@ crates/
 
 Логи: `RUST_LOG=debug cargo run -p queryman-app`.
 
+## Готовые сборки
+
+Workflow `Build` собирает release-бинарники для Linux (x86_64, `.tar.gz`) и Windows (x86_64, `.zip`)
+на каждый push в `main` и в PR — они лежат в артефактах запуска на вкладке Actions.
+Тег `v*` (например, `git tag v0.1.0 && git push origin v0.1.0`) дополнительно публикует GitHub Release с этими архивами.
+
 ## Проверка
 
 CI (`.github/workflows/ci.yml`) запускает `cargo fmt --check`, `cargo clippy -D warnings` и `cargo test`.
