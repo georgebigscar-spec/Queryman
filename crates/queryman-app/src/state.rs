@@ -3,6 +3,7 @@
 use queryman_core::collection::{Collection, Folder, HistoryEntry, Item};
 use queryman_core::model::{Auth, Environment, Request, ResponseData, Variable, Workspace, WorkspaceSnapshot};
 use queryman_core::protocol::{HttpError, ResponseText, TabId};
+use queryman_core::script::{ScriptReport, VarScope};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -23,6 +24,10 @@ pub struct Tab {
     pub in_flight: Option<Instant>,
     /// Запрос в том виде, в каком он был отправлен, — для записи в историю.
     pub sent: Option<(Request, u64)>,
+    /// Результат скриптов последней отправки.
+    pub scripts: Option<ScriptReport>,
+    /// Pre-request / Tests в редакторе скриптов.
+    pub script_section: usize,
 }
 
 impl Tab {
@@ -36,6 +41,8 @@ impl Tab {
             response: None,
             in_flight: None,
             sent: None,
+            scripts: None,
+            script_section: 0,
         }
     }
 }
@@ -392,6 +399,22 @@ impl AppState {
         }
         if self.tree_selection == Some(node) {
             self.tree_selection = None;
+        }
+    }
+
+    /// Применяет `pm.environment.set` / `pm.globals.set` из скриптов.
+    pub fn apply_script_ops(&mut self, report: &ScriptReport) {
+        for op in &report.ops {
+            let vars = match op.scope {
+                VarScope::Globals => &mut self.globals,
+                VarScope::Environment => {
+                    match report.environment.and_then(|id| self.environments.iter_mut().find(|e| e.id == id)) {
+                        Some(env) => &mut env.variables,
+                        None => continue,
+                    }
+                }
+            };
+            crate::worker::apply_op(vars, op);
         }
     }
 

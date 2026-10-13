@@ -5,6 +5,7 @@ pub mod collection;
 pub mod model;
 pub mod prepare;
 pub mod protocol;
+pub mod script;
 pub mod url_sync;
 pub mod vars;
 

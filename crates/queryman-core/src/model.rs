@@ -183,6 +183,7 @@ pub struct Request {
     pub body: Body,
     pub auth: Auth,
     pub settings: RequestSettings,
+    pub scripts: crate::script::Scripts,
 }
 
 impl Default for Request {
@@ -197,6 +198,7 @@ impl Default for Request {
             body: Body::None,
             auth: Auth::Inherit,
             settings: RequestSettings::default(),
+            scripts: crate::script::Scripts::default(),
         }
     }
 }

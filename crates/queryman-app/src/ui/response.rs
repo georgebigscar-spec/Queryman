@@ -4,6 +4,7 @@ use super::components;
 use crate::state::{AppState, TabResponse};
 use eframe::egui::{self, RichText};
 use queryman_core::model::ResponseData;
+use queryman_core::script::{LogLevel, ScriptReport};
 
 /// Возвращает тело и предлагаемое имя файла, если пользователь нажал «Сохранить в файл».
 pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)> {
@@ -29,6 +30,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)
                 ui.label(RichText::new("Запрос не выполнен").strong().color(components::ERROR_COLOR));
                 ui.add_space(4.0);
                 ui.label(error.to_string());
+                if let Some(report) = &tab.scripts {
+                    ui.add_space(8.0);
+                    script_console(ui, tab.id, report);
+                }
             }
             Some(TabResponse::Ok { data, text }) => {
                 let color = components::status_color(data.status);
@@ -52,7 +57,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)
                 ui.add_space(4.0);
 
                 let headers_label = format!("Headers ({})", data.headers.len());
-                components::tabs(ui, &mut tab.response_section, &["Body", headers_label.as_str()]);
+                let (tests_label, console_label) = match &tab.scripts {
+                    Some(r) => (
+                        format!("Tests ({}/{})", r.passed(), r.tests.len()),
+                        format!("Console ({})", r.logs.len() + r.errors.len()),
+                    ),
+                    None => ("Tests".to_owned(), "Console".to_owned()),
+                };
+                components::tabs(
+                    ui,
+                    &mut tab.response_section,
+                    &["Body", headers_label.as_str(), tests_label.as_str(), console_label.as_str()],
+                );
                 ui.add_space(6.0);
 
                 if tab.response_section == 0 {
@@ -86,6 +102,13 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)
                             ui.add(egui::TextEdit::multiline(&mut shown).code_editor().desired_width(f32::INFINITY));
                         },
                     );
+                } else if tab.response_section == 2 {
+                    script_tests(ui, tab.id, tab.scripts.as_ref());
+                } else if tab.response_section == 3 {
+                    match &tab.scripts {
+                        Some(report) => script_console(ui, tab.id, report),
+                        None => components::muted(ui, "Скрипты ничего не выводили. console.log() пишет сюда."),
+                    }
                 } else {
                     egui::ScrollArea::vertical()
                         .id_salt(("response_headers", tab.id))
@@ -108,6 +131,59 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)
         }
     });
     save
+}
+
+fn script_tests(ui: &mut egui::Ui, tab: u64, report: Option<&ScriptReport>) {
+    let Some(report) = report.filter(|r| !r.tests.is_empty() || !r.errors.is_empty()) else {
+        components::muted(ui, "Тестов нет. Добавьте pm.test(...) во вкладке Scripts → Tests.");
+        return;
+    };
+    egui::ScrollArea::vertical().id_salt(("response_tests", tab)).auto_shrink([false, false]).show(ui, |ui| {
+        for error in &report.errors {
+            ui.label(RichText::new(error).color(components::ERROR_COLOR));
+        }
+        for test in &report.tests {
+            ui.horizontal(|ui| {
+                let (mark, color) = if test.passed {
+                    ("PASS", components::status_color(200))
+                } else {
+                    ("FAIL", components::ERROR_COLOR)
+                };
+                ui.label(RichText::new(mark).strong().monospace().color(color));
+                ui.label(&test.name);
+                if let Some(error) = &test.error {
+                    components::muted(ui, error);
+                }
+            });
+        }
+    });
+}
+
+fn script_console(ui: &mut egui::Ui, tab: u64, report: &ScriptReport) {
+    if report.logs.is_empty() && report.errors.is_empty() {
+        components::muted(ui, "Скрипты ничего не выводили. console.log() пишет сюда.");
+        return;
+    }
+    egui::ScrollArea::vertical().id_salt(("response_console", tab)).auto_shrink([false, false]).show(ui, |ui| {
+        for line in &report.logs {
+            let color = match line.level {
+                LogLevel::Error => Some(components::ERROR_COLOR),
+                LogLevel::Warn => Some(components::status_color(400)),
+                LogLevel::Log | LogLevel::Info => None,
+            };
+            let text = RichText::new(&line.text).monospace();
+            ui.add(
+                egui::Label::new(match color {
+                    Some(c) => text.color(c),
+                    None => text,
+                })
+                .wrap(),
+            );
+        }
+        for error in &report.errors {
+            ui.label(RichText::new(error).monospace().color(components::ERROR_COLOR));
+        }
+    });
 }
 
 /// Имя файла из последнего сегмента пути и расширение по Content-Type.

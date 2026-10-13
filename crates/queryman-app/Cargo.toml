@@ -19,6 +19,8 @@ queryman-core.workspace = true
 queryman-http.workspace = true
 queryman-storage.workspace = true
 queryman-io.workspace = true
+queryman-script.workspace = true
+reqwest.workspace = true
 eframe.workspace = true
 shadcn_egui.workspace = true
 tokio.workspace = true
@@ -29,3 +31,7 @@ tracing-subscriber.workspace = true
 rfd.workspace = true
 time.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+tokio.workspace = true

@@ -8,7 +8,7 @@ use eframe::egui;
 use queryman_core::collection::HistoryEntry;
 use queryman_core::model::{Variable, WorkspaceSnapshot};
 use queryman_core::prepare::{prepare, ResolvedRequest};
-use queryman_core::protocol::{Command, Event, HttpError};
+use queryman_core::protocol::{Command, Event, HttpError, SendJob};
 use queryman_core::vars::Resolver;
 use queryman_storage::Store;
 use std::time::{Duration, Instant};
@@ -74,13 +74,20 @@ impl QuerymanApp {
             components::notify_error(ctx, "Введите URL запроса");
             return;
         }
-        let request = self.resolve_active();
+        let request = self.state.active_tab().request.without_blank_rows();
+        let job = SendJob {
+            parent_auth: self.state.inherited_auth(request.id),
+            environment: self.state.active_environment().cloned(),
+            globals: self.state.globals.clone(),
+            request,
+        };
         let tab = self.state.active_tab_mut();
         tab.sent = Some((tab.request.without_blank_rows(), unix_ms()));
         tab.in_flight = Some(Instant::now());
         tab.response = None;
+        tab.scripts = None;
         let id = tab.id;
-        self.worker.send(Command::Send { tab: id, request });
+        self.worker.send(Command::Send { tab: id, job: Box::new(job) });
     }
 
     fn cancel_active(&mut self) {
@@ -116,8 +123,16 @@ impl QuerymanApp {
         let mut changed = false;
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
-                Event::ResponseReady { tab, result, text } => {
+                Event::ResponseReady { tab, result, text, scripts } => {
+                    if !scripts.ops.is_empty() {
+                        self.state.apply_script_ops(&scripts);
+                        changed = true;
+                    }
+                    if let Some(error) = scripts.errors.first() {
+                        components::notify_error(ctx, &format!("Ошибка скрипта: {error}"));
+                    }
                     let Some(tab) = self.state.tab_mut(tab) else { continue };
+                    tab.scripts = (!scripts.is_empty()).then_some(scripts);
                     tab.in_flight = None;
                     let sent = tab.sent.take();
                     let entry =
