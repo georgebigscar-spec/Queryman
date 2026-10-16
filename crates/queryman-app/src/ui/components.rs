@@ -115,6 +115,83 @@ pub fn human_size(bytes: u64) -> String {
     }
 }
 
+/// Поле поиска с лупой и кнопкой очистки.
+pub fn search_input(ui: &mut egui::Ui, value: &mut String, placeholder: &str) -> egui::Response {
+    ui.add(sc::InputGroup::new(value).placeholder(placeholder).search_icon().clearable())
+}
+
+/// Выпадающий список с поиском. Возвращает `true`, если выбор изменился.
+pub fn combobox<S: AsRef<str>>(
+    ui: &mut egui::Ui,
+    selected: &mut Option<usize>,
+    options: &[S],
+    search_placeholder: &str,
+    width: f32,
+) -> bool {
+    let combobox = sc::Combobox::new(selected, options)
+        .search_placeholder(search_placeholder)
+        .empty("Ничего не найдено")
+        .width(width);
+    ui.add(combobox).changed()
+}
+
+pub fn spinner(ui: &mut egui::Ui) -> egui::Response {
+    ui.add(sc::Spinner::new())
+}
+
+/// Заглушка для пустого списка или области с кнопками действий.
+pub fn empty<R>(
+    ui: &mut egui::Ui,
+    icon: &str,
+    title: &str,
+    description: &str,
+    add_actions: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    sc::Empty::new(title).icon(icon).description(description).show(ui, add_actions).inner
+}
+
+/// Контекстное меню по правой кнопке в стиле shadcn.
+pub fn context_menu(response: &egui::Response, add_contents: impl FnOnce(&mut egui::Ui)) {
+    sc::context_menu(response, 200.0, add_contents);
+}
+
+/// Пункт меню; возвращает `true` при нажатии и закрывает меню.
+pub fn menu_item(ui: &mut egui::Ui, text: &str) -> bool {
+    sc::menu_item(ui, text, None).clicked()
+}
+
+pub fn menu_separator(ui: &mut egui::Ui) {
+    sc::menu_separator(ui);
+}
+
+/// Панель, выезжающая справа поверх затемнённого фона (Esc, клик по фону или ✕ закрывают её).
+pub fn sheet<R>(
+    ctx: &egui::Context,
+    id_salt: &str,
+    title: &str,
+    description: &str,
+    width: f32,
+    open: &mut bool,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    sc::Sheet::new(id_salt, title).description(description).size(width).show(ctx, open, add_contents)
+}
+
+pub use sc::CommandUi;
+
+/// Палитра команд (Ctrl+K): поиск по командам и сохранённым запросам.
+pub fn command_palette<R>(
+    ctx: &egui::Context,
+    open: &mut bool,
+    add_items: impl FnOnce(&mut CommandUi<'_>) -> R,
+) -> Option<R> {
+    sc::Command::new("command_palette")
+        .placeholder("Команда или запрос…")
+        .empty("Ничего не найдено")
+        .max_height(360.0)
+        .show_dialog(ctx, open, add_items)
+}
+
 pub use sc::TreeUi;
 
 /// Дерево с одиночным выбором (`shadcn_egui::Tree`).

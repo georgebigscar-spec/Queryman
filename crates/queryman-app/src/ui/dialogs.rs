@@ -58,19 +58,14 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> DialogOutcome {
                     components::input(ui, name, "Название запроса", width);
                     ui.add_space(8.0);
                     components::muted(ui, "Куда");
-                    let selected = destination
-                        .and_then(|i| destinations.get(i))
-                        .map_or("Новая коллекция", |d| d.label.as_str())
-                        .to_owned();
-                    egui::ComboBox::from_id_salt("save_destination").selected_text(selected).width(width).show_ui(
-                        ui,
-                        |ui| {
-                            for (i, d) in destinations.iter().enumerate() {
-                                ui.selectable_value(destination, Some(i), d.label.as_str());
-                            }
-                            ui.selectable_value(destination, None, "Новая коллекция");
-                        },
-                    );
+                    // Последний пункт — «Новая коллекция» (`destination == None`).
+                    let mut options: Vec<&str> = destinations.iter().map(|d| d.label.as_str()).collect();
+                    options.push("Новая коллекция");
+                    let mut selected = Some(destination.unwrap_or(destinations.len()));
+                    if components::combobox(ui, &mut selected, &options, "Поиск коллекции или папки…", width)
+                    {
+                        *destination = selected.filter(|&i| i < destinations.len());
+                    }
                     if destination.is_none() {
                         ui.add_space(8.0);
                         components::input(ui, new_collection, "Название коллекции", width);

@@ -121,6 +121,10 @@ pub struct AppState {
     pub history: Vec<HistoryEntry>,
     /// Коллекции / История
     pub sidebar_section: usize,
+    /// Строка поиска по истории.
+    pub history_filter: String,
+    /// Открыта ли палитра команд (Ctrl+K).
+    pub palette_open: bool,
     pub tree_selection: Option<Node>,
     pub dialog: Option<Dialog>,
     /// Команды рабочему потоку, собранные за кадр; отправляет `QuerymanApp`.
@@ -141,6 +145,8 @@ impl AppState {
             collections: snapshot.collections,
             history: snapshot.history,
             sidebar_section: 0,
+            history_filter: String::new(),
+            palette_open: false,
             tree_selection: None,
             dialog: None,
             outbox: Vec::new(),

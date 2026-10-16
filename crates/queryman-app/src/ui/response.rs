@@ -15,7 +15,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)
 
         if let Some(started) = tab.in_flight {
             ui.horizontal(|ui| {
-                ui.spinner();
+                components::spinner(ui);
                 ui.label(format!("Выполняется… {:.1} с", started.elapsed().as_secs_f32()));
                 components::muted(ui, "Esc — отменить");
             });
@@ -24,7 +24,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> Option<(Vec<u8>, String)
 
         match &tab.response {
             None => {
-                ui.centered_and_justified(|ui| components::muted(ui, "Отправьте запрос — Ctrl+Enter"));
+                components::empty(ui, "↗", "Ответа пока нет", "Отправьте запрос — Ctrl+Enter", |_| {});
             }
             Some(TabResponse::Err(error)) => {
                 ui.label(RichText::new("Запрос не выполнен").strong().color(components::ERROR_COLOR));

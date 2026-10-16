@@ -33,7 +33,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         if state.sidebar_section == 0 {
             collections(ui, state, &mut actions);
         } else {
-            history(ui, &state.history, &mut actions);
+            history(ui, &state.history, &mut state.history_filter, &mut actions);
         }
     });
 
@@ -57,19 +57,20 @@ fn collections(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action
         });
     });
     if state.collections.is_empty() {
-        components::muted(
+        components::empty(
             ui,
-            "Коллекций пока нет. Создайте коллекцию, импортируйте её из Postman или сохраните запрос (Ctrl+S).",
+            "▤",
+            "Коллекций пока нет",
+            "Создайте коллекцию, импортируйте её из Postman или сохраните запрос (Ctrl+S).",
+            |ui| {
+                if components::outline(ui, "Создать").clicked() {
+                    actions.push(Action::NewCollection);
+                }
+                if components::outline(ui, "Импорт").clicked() {
+                    actions.push(Action::Import);
+                }
+            },
         );
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if components::outline(ui, "Создать коллекцию").clicked() {
-                actions.push(Action::NewCollection);
-            }
-            if components::outline(ui, "Импорт").clicked() {
-                actions.push(Action::Import);
-            }
-        });
         return;
     }
 
@@ -87,7 +88,7 @@ fn collections(ui: &mut egui::Ui, state: &mut AppState, actions: &mut Vec<Action
                     },
                     |tree| items(tree, &c.items, actions),
                 );
-                response.context_menu(|ui| container_menu(ui, node, actions));
+                components::context_menu(&response, |ui| container_menu(ui, node, actions));
             }
         });
     });
@@ -113,7 +114,7 @@ fn folder(tree: &mut components::TreeUi<'_, Node>, f: &Folder, actions: &mut Vec
         },
         |tree| items(tree, &f.items, actions),
     );
-    response.context_menu(|ui| container_menu(ui, node, actions));
+    components::context_menu(&response, |ui| container_menu(ui, node, actions));
 }
 
 fn request(tree: &mut components::TreeUi<'_, Node>, r: &Request, actions: &mut Vec<Action>) {
@@ -126,47 +127,47 @@ fn request(tree: &mut components::TreeUi<'_, Node>, r: &Request, actions: &mut V
     if response.clicked() {
         actions.push(Action::Open(r.id));
     }
-    response.context_menu(|ui| {
-        if ui.button("Открыть").clicked() {
+    components::context_menu(&response, |ui| {
+        if components::menu_item(ui, "Открыть") {
             actions.push(Action::Open(r.id));
         }
-        if ui.button("Переименовать").clicked() {
+        if components::menu_item(ui, "Переименовать") {
             actions.push(Action::Rename(node));
         }
-        if ui.button("Дублировать").clicked() {
+        if components::menu_item(ui, "Дублировать") {
             actions.push(Action::Duplicate(node));
         }
-        ui.separator();
-        if ui.button("Удалить").clicked() {
+        components::menu_separator(ui);
+        if components::menu_item(ui, "Удалить") {
             actions.push(Action::Delete(node));
         }
     });
 }
 
 fn container_menu(ui: &mut egui::Ui, node: Node, actions: &mut Vec<Action>) {
-    if ui.button("Новый запрос").clicked() {
+    if components::menu_item(ui, "Новый запрос") {
         actions.push(Action::NewRequest(node));
     }
-    if ui.button("Новая папка").clicked() {
+    if components::menu_item(ui, "Новая папка") {
         actions.push(Action::NewFolder(node));
     }
-    ui.separator();
-    if ui.button("Переименовать").clicked() {
+    components::menu_separator(ui);
+    if components::menu_item(ui, "Переименовать") {
         actions.push(Action::Rename(node));
     }
-    if ui.button("Авторизация…").clicked() {
+    if components::menu_item(ui, "Авторизация…") {
         actions.push(Action::EditAuth(node));
     }
-    if ui.button("Дублировать").clicked() {
+    if components::menu_item(ui, "Дублировать") {
         actions.push(Action::Duplicate(node));
     }
-    ui.separator();
-    if ui.button("Удалить").clicked() {
+    components::menu_separator(ui);
+    if components::menu_item(ui, "Удалить") {
         actions.push(Action::Delete(node));
     }
 }
 
-fn history(ui: &mut egui::Ui, history: &[HistoryEntry], actions: &mut Vec<Action>) {
+fn history(ui: &mut egui::Ui, history: &[HistoryEntry], filter: &mut String, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         components::heading(ui, "История");
         if !history.is_empty() {
@@ -178,16 +179,38 @@ fn history(ui: &mut egui::Ui, history: &[HistoryEntry], actions: &mut Vec<Action
         }
     });
     if history.is_empty() {
-        components::muted(ui, "Здесь появятся отправленные запросы. Тела ответов не сохраняются.");
+        components::empty(
+            ui,
+            "↻",
+            "История пуста",
+            "Здесь появятся отправленные запросы. Тела ответов не сохраняются.",
+            |_| {},
+        );
+        return;
+    }
+    ui.add_space(4.0);
+    components::search_input(ui, filter, "Поиск по URL и методу");
+    ui.add_space(4.0);
+    let query = filter.trim().to_lowercase();
+    let shown: Vec<usize> = (0..history.len())
+        .filter(|&i| {
+            let request = &history[i].request;
+            query.is_empty()
+                || request.url.to_lowercase().contains(&query)
+                || request.method.as_str().to_lowercase().contains(&query)
+        })
+        .collect();
+    if shown.is_empty() {
+        components::muted(ui, "Ничего не найдено");
         return;
     }
     let now = crate::app::unix_ms();
     egui::ScrollArea::vertical().id_salt("history_scroll").auto_shrink([false, false]).show_rows(
         ui,
         44.0,
-        history.len(),
+        shown.len(),
         |ui, range| {
-            for i in range {
+            for &i in &shown[range] {
                 let entry = &history[i];
                 let response = ui
                     .push_id(entry.id, |ui| {
@@ -228,11 +251,11 @@ fn history(ui: &mut egui::Ui, history: &[HistoryEntry], actions: &mut Vec<Action
                 if response.clicked() {
                     actions.push(Action::OpenHistory(i));
                 }
-                response.context_menu(|ui| {
-                    if ui.button("Открыть").clicked() {
+                components::context_menu(&response, |ui| {
+                    if components::menu_item(ui, "Открыть") {
                         actions.push(Action::OpenHistory(i));
                     }
-                    if ui.button("Удалить запись").clicked() {
+                    if components::menu_item(ui, "Удалить запись") {
                         actions.push(Action::DeleteHistory(i));
                     }
                 });
