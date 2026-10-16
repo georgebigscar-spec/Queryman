@@ -189,8 +189,9 @@ impl QuerymanApp {
     fn handle_hotkeys(&mut self, ctx: &egui::Context) -> bool {
         use egui::{Key, Modifiers};
         let in_flight = self.state.active_tab().in_flight.is_some();
-        let (send, cancel, new_tab, close_tab, save) = ctx.input_mut(|i| {
+        let (palette, send, cancel, new_tab, close_tab, save) = ctx.input_mut(|i| {
             (
+                i.consume_key(Modifiers::COMMAND, Key::K),
                 i.consume_key(Modifiers::COMMAND, Key::Enter),
                 in_flight && i.consume_key(Modifiers::NONE, Key::Escape),
                 i.consume_key(Modifiers::COMMAND, Key::T),
@@ -198,6 +199,9 @@ impl QuerymanApp {
                 i.consume_key(Modifiers::COMMAND, Key::S),
             )
         });
+        if palette {
+            self.state.palette_open = !self.state.palette_open;
+        }
         let saved = save && self.save_active();
         if send {
             self.send_active(ctx);
@@ -266,6 +270,8 @@ impl eframe::App for QuerymanApp {
         }
         changed |= ui::request::show_editor(root, &mut self.state);
         changed |= ui::environments::show(ctx, &mut self.state);
+        let palette = ui::palette::show(ctx, &mut self.state);
+        changed |= palette.changed;
         let dialog = ui::dialogs::show(ctx, &mut self.state);
         changed |= dialog.changed;
         if let Some(text) = dialog.import {
@@ -276,16 +282,16 @@ impl eframe::App for QuerymanApp {
         }
         components::show_toasts(ctx);
 
-        if bar.send {
+        if bar.send || palette.send {
             self.send_active(ctx);
         }
         if bar.cancel {
             self.cancel_active();
         }
-        if bar.copy_curl {
+        if bar.copy_curl || palette.copy_curl {
             self.copy_as_curl(ctx);
         }
-        if bar.save {
+        if bar.save || palette.save {
             changed |= self.save_active();
         }
 

@@ -1,4 +1,4 @@
-//! Окно редактирования окружений и глобальных переменных (FR-40).
+//! Панель редактирования окружений и глобальных переменных (FR-40).
 
 use super::{components, kv};
 use crate::state::AppState;
@@ -15,7 +15,9 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
     let mut add = false;
     let mut delete = None;
 
-    egui::Window::new("Окружения").open(&mut open).default_size([720.0, 440.0]).show(ctx, |ui| {
+    let width = (ctx.content_rect().width() - 80.0).clamp(480.0, 760.0);
+    let description = "Переменные {{var}}: окружение переопределяет глобальные значения.";
+    components::sheet(ctx, "environments", "Окружения", description, width, &mut open, |ui| {
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(180.0);
@@ -25,7 +27,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
                 ui.separator();
                 for (i, env) in state.environments.iter().enumerate() {
                     let active = state.active_env == Some(env.id);
-                    let label = if active { format!("● {}", env.name) } else { env.name.clone() };
+                    let label = if active { format!("{} · активно", env.name) } else { env.name.clone() };
                     if ui.selectable_label(state.env_editor_selection == Some(i), label).clicked() {
                         select = Some(Some(i));
                     }
@@ -47,7 +49,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState) -> bool {
                     if let Some(env) = state.environments.get_mut(i) {
                         ui.horizontal(|ui| {
                             ui.label("Название");
-                            changed |= ui.text_edit_singleline(&mut env.name).changed();
+                            changed |= components::input(ui, &mut env.name, "Название окружения", 240.0).changed();
                             if components::ghost(ui, "Удалить").clicked() {
                                 delete = Some(i);
                             }

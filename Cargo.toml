@@ -19,7 +19,7 @@ queryman-script = { path = "crates/queryman-script" }
 # UI. Версия egui/eframe задаётся shadcn_egui (сейчас 0.36).
 eframe = "0.36"
 # Закреплён коммит, с которым проходит сборка. Обновлять вручную: поменять rev и `cargo update -p shadcn_egui`.
-shadcn_egui = { git = "https://github.com/georgebigscar-spec/shadcn_egui", rev = "7425c3f3b33934fb7cb087e0e39d34c6ab6f965c" }
+shadcn_egui = { git = "https://github.com/georgebigscar-spec/shadcn_egui", rev = "86c5d40c6ba664670b24383da80f2921b0dde291" }
 
 # Сеть и рантайм
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }

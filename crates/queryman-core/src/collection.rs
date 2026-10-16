@@ -117,6 +117,13 @@ impl Collection {
         out
     }
 
+    /// Все запросы коллекции вместе с путём к их папке (`Коллекция / Папка`), для поиска.
+    pub fn requests(&self) -> Vec<(String, &Request)> {
+        let mut out = Vec::new();
+        collect_requests(&self.items, &self.name, &mut out);
+        out
+    }
+
     /// Копия элемента с новыми идентификаторами (для «Дублировать»).
     pub fn duplicate(item: &Item) -> Item {
         match item {
@@ -207,6 +214,15 @@ fn path_to<'a>(items: &'a [Item], id: Uuid, chain: &mut Vec<&'a Folder>) -> bool
         }
     }
     false
+}
+
+fn collect_requests<'a>(items: &'a [Item], prefix: &str, out: &mut Vec<(String, &'a Request)>) {
+    for item in items {
+        match item {
+            Item::Request(r) => out.push((prefix.to_owned(), r)),
+            Item::Folder(f) => collect_requests(&f.items, &format!("{prefix} / {}", f.name), out),
+        }
+    }
 }
 
 fn collect_folders(items: &[Item], prefix: &str, out: &mut Vec<(Option<Uuid>, String)>) {
@@ -307,6 +323,13 @@ mod tests {
         assert!(c.remove(deep).is_some());
         assert!(!c.contains(deep));
         assert!(c.find_request(top).is_some());
+    }
+
+    #[test]
+    fn requests_with_paths() {
+        let (c, ..) = sample();
+        let found: Vec<(String, &str)> = c.requests().into_iter().map(|(p, r)| (p, r.name.as_str())).collect();
+        assert_eq!(found, [("api".into(), "top"), ("api / f".into(), "inner"), ("api / f / sub".into(), "deep")]);
     }
 
     #[test]
